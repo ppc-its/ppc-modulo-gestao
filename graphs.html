@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>PPeC • Gráficos</title>
+    <link rel="icon" href="assets/logo.png" />
+    <link rel="stylesheet" href="css/styles.css" />
+    <style>
+        /* Specific styles for graphs page */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 22px;
+            margin-top: 10px;
+        }
+
+        .chart-card {
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.24);
+            border-radius: 24px;
+            padding: 20px;
+            box-shadow: 0 16px 40px rgba(10, 15, 26, 0.08);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chart-card h3 {
+            margin: 0 0 16px 0;
+            font-size: 16px;
+            color: var(--panel-2);
+            font-weight: 800;
+            letter-spacing: 0.3px;
+        }
+
+        .chart-container {
+            position: relative;
+            flex: 1;
+            min-height: 250px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <!-- Sidebar (Visual consistency) -->
+        <aside class="sidebar">
+            <div class="brand">
+                <img src="assets/logo.png" alt="Logo" />
+            </div>
+
+            <div class="section-title">
+                <div class="pill">Visualização</div>
+            </div>
+
+            <div class="controls">
+                <div class="control">
+                    <label>Período</label>
+                    <select>
+                        <option>Últimos 30 dias</option>
+                        <option>Este Mês</option>
+                        <option>Este Ano</option>
+                    </select>
+                </div>
+
+                <div class="filehint" style="margin-top:20px">
+                    Visualização consolidada dos indicadores de performance e volumetria da equipe.
+                </div>
+
+                <div class="footer-meta" style="margin-top:auto">
+                    <div class="badge">v1.0.0</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main -->
+        <main class="main">
+            <div class="topbar">
+                <div class="title-pill">DASHBOARD DE INDICADORES</div>
+                <div class="top-actions">
+                    <a href="index.html" class="action-chip" title="Voltar para o Kanban">
+                        <span>Voltar ao Board</span>
+                    </a>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <!-- Chart 1 -->
+                <div class="chart-card">
+                    <h3>Distribuição por Tipo de Demanda</h3>
+                    <div class="chart-container">
+                        <canvas id="chartType"></canvas>
+                    </div>
+                </div>
+
+                <!-- Chart 2 -->
+                <div class="chart-card">
+                    <h3>Horas por Status</h3>
+                    <div class="chart-container">
+                        <canvas id="chartStatus"></canvas>
+                    </div>
+                </div>
+
+                <!-- Chart 3 -->
+                <div class="chart-card" style="grid-column: 1 / -1;">
+                    <h3>Evolução de Entregas (Semanal)</h3>
+                    <div class="chart-container" style="min-height: 300px;">
+                        <canvas id="chartTimeline"></canvas>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="js/graphs.js"></script>
+</body>
+
+</html>
