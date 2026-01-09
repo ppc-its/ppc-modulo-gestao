@@ -5,12 +5,11 @@
    ========================= */
 
 const STATUS_ORDER = [
-  { key: "backlog", label: "backlog" },
-  { key: "blocked", label: "blocked" },
-  { key: "doing", label: "doing" },
-  { key: "testing", label: "testing" },
-  { key: "done", label: "done" },
-  { key: "dismissed", label: "dismissed" },
+  { key: "Em Avaliação", label: "Em Avaliação" },
+  { key: "Backlog", label: "Backlog" },
+  { key: "Em andamento", label: "Em andamento" },
+  { key: "Concluída", label: "Concluída" },
+  { key: "Cancelada", label: "Cancelada" },
 ];
 
 const TYPE_ORDER = [
@@ -47,17 +46,25 @@ function initials(name) {
 function normalizeStatus(raw) {
   const s = safeStr(raw).toLowerCase();
 
-  // You can edit these mappings freely
-  if (!s) return "backlog";
-  if (["em avaliação", "em avaliacao", "avaliacao", "avaliação", "backlog", "to do", "todo", "a fazer"].includes(s)) return "backlog";
-  if (["bloqueado", "blocked", "impedido"].includes(s)) return "blocked";
-  if (["em andamento", "andamento", "doing", "in progress", "progresso"].includes(s)) return "doing";
-  if (["teste", "testing", "qa", "homologação", "homologacao"].includes(s)) return "testing";
-  if (["concluído", "concluido", "done", "finalizado"].includes(s)) return "done";
-  if (["cancelado", "dismissed", "descartado"].includes(s)) return "dismissed";
+  // "Em Avaliação"
+  if (["em avaliação", "em avaliacao", "avaliacao", "avaliação", "analise", "análise"].includes(s)) return "Em Avaliação";
+
+  // "Backlog"
+  if (["backlog", "to do", "todo", "a fazer", "fila"].includes(s)) return "Backlog";
+
+  // "Em andamento" (incluindo blocked/testing pra não perder tasks)
+  if (["em andamento", "andamento", "doing", "in progress", "progresso", "fazendo", "execução"].includes(s)) return "Em andamento";
+  if (["bloqueado", "blocked", "impedido"].includes(s)) return "Em andamento"; // Mapping blocked to doing
+  if (["teste", "testing", "qa", "homologação", "homologacao", "revisão"].includes(s)) return "Em andamento"; // Mapping testing to doing
+
+  // "Concluída"
+  if (["concluído", "concluido", "done", "finalizado", "entregue", "concluída", "concluida"].includes(s)) return "Concluída";
+
+  // "Cancelada"
+  if (["cancelado", "dismissed", "descartado", "cancelada"].includes(s)) return "Cancelada";
 
   // Default fallback
-  return "backlog";
+  return "Backlog";
 }
 
 function detectDemandType(row) {

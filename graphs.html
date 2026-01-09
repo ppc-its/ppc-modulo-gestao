@@ -57,11 +57,49 @@
             <div class="controls">
                 <div class="control">
                     <label>Período</label>
-                    <select>
-                        <option>Últimos 30 dias</option>
-                        <option>Este Mês</option>
-                        <option>Este Ano</option>
+                    <select id="periodSelect">
+                        <option value="30">Últimos 30 dias</option>
+                        <option value="month">Este Mês</option>
+                        <option value="year">Este Ano</option>
+                        <option value="all">Todo o Período</option>
                     </select>
+                </div>
+
+                <div class="control">
+                    <label>Cliente</label>
+                    <select id="clientSelect">
+                        <option value="">Todos</option>
+                    </select>
+                </div>
+
+                <div class="control">
+                    <label>Responsável</label>
+                    <select id="respSelect">
+                        <option value="">Todos</option>
+                    </select>
+                </div>
+
+                <div class="control">
+                    <label>Métrica</label>
+                    <select id="metricSelect">
+                        <option value="hours">Horas Totais</option>
+                        <option value="hoursProject">Horas Projeto</option>
+                        <option value="hoursAdm">Horas ADM</option>
+                    </select>
+                </div>
+
+                <div class="control">
+                    <label>Prazo</label>
+                    <select id="deadlineSelect">
+                        <option value="all">Todos</option>
+                        <option value="ontime">No Prazo / A Vencer</option>
+                        <option value="overdue">Atrasados</option>
+                    </select>
+                </div>
+
+                <div class="btnrow">
+                    <button class="btn primary" id="btnApply">Aplicar</button>
+                    <button class="btn ghost" id="btnReset">Limpar</button>
                 </div>
 
                 <div class="filehint" style="margin-top:20px">
