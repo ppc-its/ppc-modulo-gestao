@@ -7,7 +7,7 @@
 const STATUS_ORDER = [
   { key: "Em Avaliação", label: "Em Avaliação" },
   { key: "Backlog", label: "Backlog" },
-  { key: "Em andamento", label: "Em andamento" },
+  { key: "Em andamento", label: "Em Andamento" },
   { key: "Concluída", label: "Concluída" },
   { key: "Cancelada", label: "Cancelada" },
 ];
@@ -98,12 +98,15 @@ function normalizeRow(row) {
   const demandType = detectDemandType(row);
   const status = normalizeStatus(row["Status"]);
 
-  const responsible = safeStr(row["Responsável Demanda"]) || safeStr(row["Email Encarregado"]) || safeStr(row["Email Gerente"]) || "";
+  // 1. normalizeRow update (lines 101)
+  const responsible = safeStr(row["Responsável Demanda"]); // Removed fallbacks to emails/clients
+
   const client = safeStr(row["Nome Cliente"]) || safeStr(row["Contato Cliente"]) || "";
   const scopeSystem = safeStr(row["Sistema em Escopo"]);
   const prpId = safeStr(row["ID - PRP (RentSoft)"]);
   const title = scopeSystem ? scopeSystem : (safeStr(row["Detalhe da demanda (Escopo)"]).slice(0, 48) || prpId || "Demanda");
   const hoursAdm = toNumber(row["Horas ADM"]);
+
   const hoursTotal = toNumber(row["Horas"]);
   const start = safeStr(row["Data Início (Previsão)"]);
   const end = safeStr(row["Data Conclusão (Previsão)"]);
@@ -213,14 +216,58 @@ function saveFilters() {
   localStorage.setItem(LOCAL_FILTERS_KEY, JSON.stringify(filters));
 }
 
+/* -------- Drag and Drop -------- */
+function handleDragStart(e, task) {
+  e.dataTransfer.setData("text/plain", task.id);
+  e.dataTransfer.effectAllowed = "move";
+}
+
+function handleDragOver(e) {
+  e.preventDefault(); // Necessary to allow dropping
+  e.dataTransfer.dropEffect = "move";
+  e.currentTarget.classList.add("drag-over");
+}
+
+function handleDragLeave(e) {
+  e.currentTarget.classList.remove("drag-over");
+}
+
+function handleDrop(e, targetStatusKey) {
+  e.preventDefault();
+  e.currentTarget.classList.remove("drag-over");
+
+  const id = e.dataTransfer.getData("text/plain");
+  const task = tasks.find(t => t.id === id);
+
+  if (task && task.status !== targetStatusKey) {
+    task.status = targetStatusKey;
+    saveToLocalStorage(tasks);
+    setUpdatedMeta(new Date().toISOString());
+    render();
+  }
+}
+
 /* -------- UI -------- */
 function render() {
   // Compute filtered
   const filtered = tasks.filter(t => {
     if (filters.person) {
       const p = filters.person.toLowerCase();
-      const hay = (t.responsible || "").toLowerCase();
-      if (!hay.includes(p)) return false;
+      // Check if person exists in any of the target roles
+      const fields = [
+        "Responsável Demanda",
+        "Trainee do Projeto",
+        "Responsável Cyber",
+        "Responsável Intelidados",
+        "Responsável Desenvolvimento"
+      ];
+      // Match partial (includes)
+      const match = fields.some(key => {
+        const val = safeStr(t.raw?.[key]).toLowerCase();
+        return val.includes(p);
+      });
+
+      if (!match) return false;
     }
     if (filters.demandType) {
       if (t.demandType !== filters.demandType) return false;
@@ -313,6 +360,11 @@ function render() {
 
     const body = $(".col-body", col);
 
+    // Drag and Drop events for the column body
+    body.addEventListener("dragover", handleDragOver);
+    body.addEventListener("dragleave", handleDragLeave);
+    body.addEventListener("drop", (e) => handleDrop(e, s.key));
+
     list
       .sort((a, b) => (b.hoursAdm - a.hoursAdm) || (a.title.localeCompare(b.title)))
       .forEach(t => body.appendChild(renderTaskCard(t)));
@@ -324,6 +376,8 @@ function render() {
 function renderTaskCard(t) {
   const el = document.createElement("div");
   el.className = "task";
+  el.draggable = true;
+  el.addEventListener("dragstart", (e) => handleDragStart(e, t));
   const avatar = initials(t.responsible);
 
   const projHours = t.hoursTotal || 0;
@@ -380,6 +434,39 @@ function openModal(task) {
     ["Aprovação", safeStr(task.raw?.["Aprovação Demanda"]) || "—"],
   ];
 
+  // Campos extras solicitados (Responsáveis e Horas)
+  // Só aparecem se o campo principal (nome) ou as horas estiverem preenchidos?
+  // A regra diz: "só apareça o campo quando ele for preenchido com algo"
+
+  const extraFields = [
+    { label: "Responsável Demanda", key: "Responsável Demanda" },
+    { label: "Horas Projeto (Demanda)", key: "Horas Projeto (Responsável Demanda)" },
+    { label: "Horas Adm (Demanda)", key: "Horas Adm (Responsável Demanda)" },
+
+    { label: "Trainee do Projeto", key: "Trainee do Projeto" },
+    { label: "Horas Projeto (Trainee)", key: "Horas Projeto (Trainee)" },
+    { label: "Horas Adm (Trainee)", key: "Horas Adm (Trainee)" },
+
+    { label: "Responsável Cyber", key: "Responsável Cyber" },
+    { label: "Horas Projeto (Cyber)", key: "Horas Projeto (Cyber)" },
+    { label: "Horas Adm (Cyber)", key: "Horas Adm (Cyber)" },
+
+    { label: "Responsável Intelidados", key: "Responsável Intelidados" },
+    { label: "Horas Projeto (Intelidados)", key: "Horas Projeto (Intelidados)" },
+    { label: "Horas Adm (Intelidados)", key: "Horas Adm (Intelidados)" },
+
+    { label: "Responsável Desenv.", key: "Responsável Desenvolvimento" },
+    { label: "Horas Projeto (Desenv.)", key: "Horas Projeto (Desenvolvimento)" }, // Assumed key pattern
+    { label: "Horas Adm (Desenv.)", key: "Horas Adm (Desenvolvimento)" },         // Assumed key pattern
+  ];
+
+  extraFields.forEach(f => {
+    const val = safeStr(task.raw?.[f.key]);
+    if (val) {
+      kvs.push([f.label, val]);
+    }
+  });
+
   const grid = $("#modalGrid");
   grid.innerHTML = "";
   kvs.forEach(([k, v]) => {
@@ -432,7 +519,22 @@ function setUpdatedMeta(tsISO) {
 }
 
 function populatePeopleDropdown() {
-  const people = new Set(tasks.map(t => safeStr(t.responsible)).filter(Boolean));
+  const fields = [
+    "Responsável Demanda",
+    "Trainee do Projeto",
+    "Responsável Cyber",
+    "Responsável Intelidados",
+    "Responsável Desenvolvimento"
+  ];
+
+  const people = new Set();
+  tasks.forEach(t => {
+    fields.forEach(f => {
+      const val = safeStr(t.raw?.[f]);
+      if (val) people.add(val);
+    });
+  });
+
   const sorted = [...people].sort((a, b) => a.localeCompare(b));
   const sel = $("#personSelect");
   const current = filters.person;

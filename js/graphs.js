@@ -61,7 +61,8 @@ function loadData() {
                         hours: parseFloat(t.hoursTotal || 0),
                         hoursAdm: parseFloat(t.hoursAdm || 0),
                         // Try to parse end date, fallback to start, fallback to today
-                        date: parseDate(t.dates?.end || t.dates?.start)
+                        date: parseDate(t.dates?.end || t.dates?.start),
+                        raw: t.raw
                     };
                 });
                 return;
@@ -100,9 +101,21 @@ function populateFilters() {
     const clientSet = new Set();
     const ownerSet = new Set();
 
+    const fields = [
+        "Responsável Demanda",
+        "Trainee do Projeto",
+        "Responsável Cyber",
+        "Responsável Intelidados",
+        "Responsável Desenvolvimento"
+    ];
+
     APP_DATA.forEach(item => {
         if (item.client) clientSet.add(item.client);
-        if (item.owner) ownerSet.add(item.owner);
+
+        fields.forEach(f => {
+            const val = item.raw?.[f]?.trim();
+            if (val) ownerSet.add(val);
+        });
     });
 
     const clientSelect = document.getElementById('clientSelect');
@@ -150,7 +163,22 @@ function applyFilters() {
         // Client Filter
         if (client && item.client !== client) return false;
         // Owner Filter
-        if (owner && item.owner !== owner) return false;
+        // Owner Filter
+        if (owner) {
+            const p = owner.toLowerCase();
+            const fields = [
+                "Responsável Demanda",
+                "Trainee do Projeto",
+                "Responsável Cyber",
+                "Responsável Intelidados",
+                "Responsável Desenvolvimento"
+            ];
+            const match = fields.some(key => {
+                const val = (item.raw?.[key] || "").toLowerCase();
+                return val.includes(p);
+            });
+            if (!match) return false;
+        }
 
         // Date Logic for Period
         const itemDate = item.date;
@@ -274,25 +302,114 @@ function initCharts(data, metric) {
 }
 
 function updateCharts(data, metric) {
-    // 1. Type
-    const typeData = processTypeData(data, metric);
+    // 1. Type (If 'all', use 'hours' as default to avoid toggle confusion, or keeps simple)
+    const typeMetric = (metric === 'all') ? 'hours' : metric;
+    const typeData = processTypeData(data, typeMetric);
     chartTypeInstance.data.labels = Object.keys(typeData);
     chartTypeInstance.data.datasets[0].data = Object.values(typeData);
     chartTypeInstance.update();
 
     // 2. Status
-    const statusData = processStatusData(data, metric);
-    chartStatusInstance.data.labels = Object.keys(statusData);
-    chartStatusInstance.data.datasets[0].label = getMetricLabel(metric);
-    chartStatusInstance.data.datasets[0].data = Object.values(statusData);
+    if (metric === 'all') {
+        const dTotal = processStatusData(data, 'hours');
+        const dProj = processStatusData(data, 'hoursProject');
+        const dAdm = processStatusData(data, 'hoursAdm');
+
+        // Ensure consistent key order
+        const labels = Object.keys(dTotal).sort();
+
+        chartStatusInstance.data.labels = labels;
+        chartStatusInstance.data.datasets = [
+            {
+                label: 'Horas Totais',
+                data: labels.map(k => dTotal[k]),
+                backgroundColor: '#0b4f78',
+                borderRadius: 6
+            },
+            {
+                label: 'Horas Projeto',
+                data: labels.map(k => dProj[k]),
+                backgroundColor: '#36A2EB',
+                borderRadius: 6
+            },
+            {
+                label: 'Horas ADM',
+                data: labels.map(k => dAdm[k]),
+                backgroundColor: '#FF9F40',
+                borderRadius: 6
+            }
+        ];
+    } else {
+        const statusData = processStatusData(data, metric);
+        const labels = Object.keys(statusData).sort(); // Sort for consistency
+
+        chartStatusInstance.data.labels = labels;
+        // Reset to single dataset if switching back from 'all'
+        chartStatusInstance.data.datasets = [{
+            label: getMetricLabel(metric),
+            data: labels.map(k => statusData[k]),
+            backgroundColor: '#0b4f78',
+            borderRadius: 6
+        }];
+    }
     chartStatusInstance.update();
 
     // 3. Timeline
-    const timelineData = processTimelineData(data, metric);
-    const sortedKeys = Object.keys(timelineData).sort();
-    chartTimelineInstance.data.labels = sortedKeys;
-    chartTimelineInstance.data.datasets[0].label = getMetricLabel(metric);
-    chartTimelineInstance.data.datasets[0].data = sortedKeys.map(k => timelineData[k]);
+    if (metric === 'all') {
+        const dTotal = processTimelineData(data, 'hours');
+        const dProj = processTimelineData(data, 'hoursProject');
+        const dAdm = processTimelineData(data, 'hoursAdm');
+
+        // Union of all keys/dates would be safer, but data is same source
+        const keys = Object.keys(dTotal).sort();
+
+        chartTimelineInstance.data.labels = keys;
+        chartTimelineInstance.data.datasets = [
+            {
+                label: 'Horas Totais',
+                data: keys.map(k => dTotal[k]),
+                borderColor: '#0b4f78',
+                backgroundColor: 'rgba(11, 79, 120, 0.1)',
+                tension: 0.4,
+                fill: false,
+                pointRadius: 4
+            },
+            {
+                label: 'Horas Projeto',
+                data: keys.map(k => dProj[k]),
+                borderColor: '#36A2EB',
+                backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                tension: 0.4,
+                fill: false,
+                pointRadius: 4
+            },
+            {
+                label: 'Horas ADM',
+                data: keys.map(k => dAdm[k]),
+                borderColor: '#FF9F40',
+                backgroundColor: 'rgba(255, 159, 64, 0.1)',
+                tension: 0.4,
+                fill: false,
+                pointRadius: 4
+            }
+        ];
+    } else {
+        const timelineData = processTimelineData(data, metric);
+        const sortedKeys = Object.keys(timelineData).sort();
+        chartTimelineInstance.data.labels = sortedKeys;
+        chartTimelineInstance.data.datasets = [{
+            label: getMetricLabel(metric),
+            data: sortedKeys.map(k => timelineData[k]),
+            borderColor: '#123e5d',
+            backgroundColor: 'rgba(18, 62, 93, 0.1)',
+            tension: 0.4,
+            fill: true,
+            pointBackgroundColor: '#fff',
+            pointBorderColor: '#123e5d',
+            pointRadius: 6,
+            borderWidth: 3
+        }];
+    }
     chartTimelineInstance.update();
 }
 
@@ -311,6 +428,7 @@ function getMetricLabel(metric) {
     if (metric === 'hours') return 'Horas Totais';
     if (metric === 'hoursAdm') return 'Horas ADM';
     if (metric === 'hoursProject') return 'Horas Projeto';
+    if (metric === 'all') return 'Visão Geral (Todas)';
     return 'Horas';
 }
 
