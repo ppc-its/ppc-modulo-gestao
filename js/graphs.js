@@ -25,6 +25,7 @@ const COLORS = {
 let chartTypeInstance = null;
 let chartStatusInstance = null;
 let chartTimelineInstance = null;
+let chartResponsibleInstance = null;
 let APP_DATA = []; // Will hold the loaded data
 const LOCAL_STORAGE_KEY = "ppc_task_board_data_v1";
 
@@ -299,6 +300,32 @@ function initCharts(data, metric) {
             plugins: { legend: { display: true } }
         }
     });
+
+    // 4. Responsible vs Capacity
+    const respData = processResponsibleData(data, metric);
+    const ctxResp = document.getElementById('chartResponsible').getContext('2d');
+    chartResponsibleInstance = new Chart(ctxResp, {
+        type: 'bar',
+        data: {
+            labels: respData.labels,
+            datasets: buildResponsibleDatasets(respData)
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+                x: { grid: { display: false } }
+            },
+            plugins: {
+                legend: { position: 'top' },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false
+                }
+            }
+        }
+    });
 }
 
 function updateCharts(data, metric) {
@@ -411,6 +438,13 @@ function updateCharts(data, metric) {
         }];
     }
     chartTimelineInstance.update();
+
+    // 4. Responsible vs Capacity
+    const respMetric = (metric === 'all') ? 'hours' : metric;
+    const newRespData = processResponsibleData(data, respMetric);
+    chartResponsibleInstance.data.labels = newRespData.labels;
+    chartResponsibleInstance.data.datasets = buildResponsibleDatasets(newRespData);
+    chartResponsibleInstance.update();
 }
 
 // Helpers
@@ -462,4 +496,73 @@ function processTimelineData(data, metric) {
         }
     });
     return res;
+}
+
+function processResponsibleData(data, metric) {
+    const monthMap = new Map();
+    const personSet = new Set();
+    const values = {};
+
+    data.forEach(d => {
+        if (!d.date) return;
+        const y = d.date.getFullYear();
+        const m = d.date.getMonth() + 1;
+        const monthKey = `${y}-${String(m).padStart(2, '0')}`;
+        // E.g. "jan/24"
+        const label = d.date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+
+        monthMap.set(monthKey, label);
+
+        const person = d.owner || "Sem Responsável";
+        personSet.add(person);
+
+        const key = `${monthKey}|${person}`;
+        const val = getMetricValue(d, metric);
+        values[key] = (values[key] || 0) + val;
+    });
+
+    const sortedMonthKeys = [...monthMap.keys()].sort();
+    const sortedPersons = [...personSet].sort();
+
+    return {
+        monthKeys: sortedMonthKeys,
+        labels: sortedMonthKeys.map(k => monthMap.get(k)),
+        persons: sortedPersons,
+        values: values
+    };
+}
+
+function buildResponsibleDatasets(processed) {
+    const datasets = [];
+
+    // 1. One dataset per Person
+    processed.persons.forEach((person, idx) => {
+        const dataPoints = processed.monthKeys.map(mKey => {
+            const key = `${mKey}|${person}`;
+            return processed.values[key] || 0;
+        });
+
+        datasets.push({
+            label: person,
+            data: dataPoints,
+            backgroundColor: COLORS.charts[idx % COLORS.charts.length],
+            borderRadius: 4,
+            barPercentage: 0.6,
+            categoryPercentage: 0.8
+        });
+    });
+
+    // 2. Capacity Dataset (176h)
+    const capacityData = processed.monthKeys.map(() => 176);
+    datasets.push({
+        label: 'Capacidade (176h)',
+        data: capacityData,
+        backgroundColor: '#9ca3af', // Gray-400
+        borderRadius: 4,
+        barPercentage: 0.6,
+        categoryPercentage: 0.8,
+        // Make it grouping with others? Yes standard bar.
+    });
+
+    return datasets;
 }
