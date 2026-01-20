@@ -55,72 +55,66 @@ if (typeof ChartDataLabels !== 'undefined') {
     Chart.register(ChartDataLabels);
 }
 
-function init() {
-    loadData();
+async function init() {
+    await loadData();
     populateFilters();
     // Initialize with default metric 'hours' (Total)
     initCharts(APP_DATA, 'hours');
     setupEventListeners();
 }
 
-function loadData() {
+async function loadData() {
     try {
-        const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (raw) {
-            const parsed = JSON.parse(raw);
-            if (parsed.tasks && Array.isArray(parsed.tasks)) {
-                APP_DATA = parsed.tasks.map(t => {
-                    // Extract assignments
-                    const assignments = [];
-                    ROLE_MAPPINGS.forEach(map => {
-                        const name = (t.raw?.[map.nameKey] || "").trim();
-                        if (name) {
-                            // Only add if name exists
-                            // Parse specific hours if available, else 0?
-                            // For visualization "Responsible vs Capacity", we want "Horas Projeto" + "Horas Adm" typically?
-                            // Or just "Horas Totais" for that person?
-                            // Logic: Total for Person = Proj + Adm specific to them.
-                            let hProj = 0;
-                            let hAdm = 0;
-                            if (map.hoursKey) hProj = parseFloat(t.raw?.[map.hoursKey] || 0);
-                            if (map.admKey) hAdm = parseFloat(t.raw?.[map.admKey] || 0);
+        const tasks = await api.getTasks();
+        if (tasks && Array.isArray(tasks)) {
+            APP_DATA = tasks.map(t => {
+                // Determine raw object (API might return raw directly or wrapped)
+                const raw = t.raw || t;
 
-                            // fallback safety: if keys exist but NaN, 0.
-                            if (isNaN(hProj)) hProj = 0;
-                            if (isNaN(hAdm)) hAdm = 0;
+                // Extract assignments
+                const assignments = [];
+                ROLE_MAPPINGS.forEach(map => {
+                    const name = (raw[map.nameKey] || "").trim();
+                    if (name) {
+                        let hProj = 0;
+                        let hAdm = 0;
+                        if (map.hoursKey) hProj = parseFloat(raw[map.hoursKey] || 0);
+                        if (map.admKey) hAdm = parseFloat(raw[map.admKey] || 0);
 
-                            assignments.push({
-                                role: map.role,
-                                person: name,
-                                hoursProject: hProj,
-                                hoursAdm: hAdm,
-                                hoursTotal: hProj + hAdm
-                            });
-                        }
-                    });
+                        // fallback safety
+                        if (isNaN(hProj)) hProj = 0;
+                        if (isNaN(hAdm)) hAdm = 0;
 
-                    // Map app.js structure to graphs.js structure
-                    return {
-                        client: t.raw?.["Nome Cliente"] || t.title || "Sem Cliente",
-                        owner: t.responsible || "Sem Responsável", // Primary owner still useful for some things?
-                        assignments: assignments, // NEW: All involved people
-                        type: t.demandType || "OUTROS",
-                        status: t.status || "Backlog",
-                        hours: parseFloat(t.hoursTotal || 0),
-                        hoursAdm: parseFloat(t.hoursAdm || 0),
-                        // Try to parse end date, fallback to start, fallback to today
-                        date: parseDate(t.dates?.end || t.dates?.start),
-                        raw: t.raw
-                    };
+                        assignments.push({
+                            role: map.role,
+                            person: name,
+                            hoursProject: hProj,
+                            hoursAdm: hAdm,
+                            hoursTotal: hProj + hAdm
+                        });
+                    }
                 });
-                return;
-            }
+
+                // Map structure
+                return {
+                    client: raw["Nome Cliente"] || t.title || "Sem Cliente",
+                    owner: t.responsible || raw["Responsável Demanda"] || "Sem Responsável",
+                    assignments: assignments,
+                    type: t.demandType || raw["Tipo de Demanda"] || "OUTROS",
+                    status: t.status || raw["Status"] || "Backlog",
+                    hours: parseFloat(raw["Horas"] || t.hoursTotal || 0),
+                    hoursAdm: parseFloat(raw["Horas ADM"] || t.hoursAdm || 0),
+                    date: parseDate(raw["Data Conclusão (Previsão)"] || raw["Data Início (Previsão)"]),
+                    raw: raw
+                };
+            });
+            return;
         }
     } catch (e) {
-        console.error("Error loading data from localStorage", e);
+        console.error("Error loading data from API", e);
     }
 
-    // Fallback if no data found (empty array to avoid crash)
+    // Fallback if no data found
     APP_DATA = [];
 }
 

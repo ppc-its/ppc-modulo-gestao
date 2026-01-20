@@ -240,10 +240,26 @@ function handleDrop(e, targetStatusKey) {
   const task = tasks.find(t => t.id === id);
 
   if (task && task.status !== targetStatusKey) {
+    // Optimistic Update
+    const oldStatus = task.status;
     task.status = targetStatusKey;
-    saveToLocalStorage(tasks);
-    setUpdatedMeta(new Date().toISOString());
     render();
+
+    // Call API
+    api.updateTask(id, { status: targetStatusKey })
+      .then(updated => {
+        // Confirm update from server response if needed
+        console.log("Task updated:", updated);
+        // Update meta updated time if server returns it, or just now
+        setUpdatedMeta(new Date().toISOString());
+      })
+      .catch(err => {
+        console.error("Failed to update status, reverting", err);
+        // Revert
+        task.status = oldStatus;
+        render();
+        alert("Erro ao atualizar status. Verifique o console.");
+      });
   }
 }
 
@@ -616,16 +632,25 @@ function bindEvents() {
   $("#csvInput").addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
-    const rows = parseCSV(text);
-    const normalized = rows.map(normalizeRow);
 
-    tasks = normalized;
-    saveToLocalStorage(tasks);
-    setUpdatedMeta(new Date().toISOString());
-    populatePeopleDropdown();
-    hideBanner();
-    render();
+    try {
+      setBanner("Enviando CSV para o servidor...", "info");
+      const updatedList = await api.uploadCSV(file);
+
+      // Normalize received data
+      tasks = normalizeTasks(updatedList);
+
+      setUpdatedMeta(new Date().toISOString());
+      populatePeopleDropdown();
+      setBanner("Dados atualizados com sucesso!", "success");
+      setTimeout(hideBanner, 3000);
+      render();
+    } catch (err) {
+      setBanner("Erro ao enviar CSV: " + err.message, "error");
+    } finally {
+      // Reset input
+      e.target.value = "";
+    }
   });
 
   $("#clearTypeBtn").addEventListener("click", () => {
@@ -642,35 +667,39 @@ async function init() {
   loadFilters();
   bindEvents();
 
-  // Try HTTP fetch first; fallback to localStorage; fallback to embedded sample
+  // API Load
   try {
-    const list = await loadFromFetch();
-    tasks = list.map(t => {
-      // If coming already normalized (tasks.json), use it. Else normalize.
-      if (t && t.raw) return t;
-      // if it's raw rows, normalize
-      return normalizeRow(t);
-    });
+    const list = await api.getTasks();
+    tasks = normalizeTasks(list);
     setUpdatedMeta(new Date().toISOString());
-    saveToLocalStorage(tasks);
     hideBanner();
-  } catch (_) {
-    const stored = loadFromLocalStorage();
-    if (stored) {
-      tasks = stored.map(t => t.raw ? t : normalizeRow(t));
-      setUpdatedMeta(new Date().toISOString());
-      setBanner("Atualmente carregando dados do localStorage. Para atualizar, clique em “Carregar CSV”.");
-    } else {
-      // embedded sample tasks are in window.__PPC_SAMPLE__
-      tasks = (window.__PPC_SAMPLE__ || []).map(normalizeRow);
-      setUpdatedMeta(new Date().toISOString());
-      setBanner("Sem dados ainda. Carregando um exemplo. Para ver o real, clique em “Carregar CSV” e selecione o arquivo do dia.");
+  } catch (err) {
+    console.warn("API load failed, falling back to sample or empty", err);
+    setBanner("Erro ao carregar dados da API. Mostrando exemplo estático.", "error");
+    if (window.__PPC_SAMPLE__) {
+      tasks = normalizeTasks(window.__PPC_SAMPLE__);
     }
   }
 
   populatePeopleDropdown();
   syncControls();
   render();
+}
+
+/**
+ * Helper to normalize a list of raw or semi-raw tasks
+ */
+function normalizeTasks(list) {
+  if (!Array.isArray(list)) return [];
+  return list.map(t => {
+    // If it looks like our internal 'task' object (has id, title...), use it.
+    // If it looks like raw CSV row, normalize it.
+    // The backend might return Raw CSV rows or processed objects. 
+    // Assuming backend returns a list of dictionaries matching the CSV columns or the internal structure.
+    // Let's assume the backend returns the raw rows mainly, similar to tasks.json structure.
+    if (t.raw) return t; // Already processed
+    return normalizeRow(t);
+  });
 }
 
 document.addEventListener("DOMContentLoaded", init);
