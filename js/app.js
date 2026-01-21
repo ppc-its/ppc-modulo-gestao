@@ -110,10 +110,12 @@ function normalizeRow(row) {
   const hoursTotal = toNumber(row["Horas"]);
   const start = safeStr(row["Data Início (Previsão)"]);
   const end = safeStr(row["Data Conclusão (Previsão)"]);
-  const idPlanner = safeStr(row["IDPlanner"]) || prpId || crypto.randomUUID();
+  const id = safeStr(row["id"]) || prpId || crypto.randomUUID();
+  // const numericId = Number(row.id || prpId || crypto.randomUUID());
+
 
   return {
-    id: idPlanner,
+    id: id,
     demandType,
     status,
     title: client || safeStr(row["Área Solicitante"]) || "",

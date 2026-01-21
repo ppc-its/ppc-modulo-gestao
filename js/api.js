@@ -3,7 +3,7 @@
    Centralizes all fetch calls to the Python/Flask Backend
    ========================= */
 
-const API_BASE_URL = "http://localhost:5000/api"; // Adjust port if needed
+const API_BASE_URL = "http://localhost:5000/lists"; // Adjust port if needed
 
 const api = {
     /**
@@ -12,7 +12,7 @@ const api = {
      */
     async getTasks() {
         try {
-            const resp = await fetch(`${API_BASE_URL}/tasks`);
+            const resp = await fetch(`${API_BASE_URL}/demandas`);
             if (!resp.ok) throw new Error(`API Error: ${resp.status}`);
             const data = await resp.json();
             // Expecting { tasks: [...] } or just [...]
@@ -30,12 +30,21 @@ const api = {
      */
     async updateTask(id, updates) {
         try {
-            const resp = await fetch(`${API_BASE_URL}/tasks/${id}`, {
-                method: "PUT",
+            // Mapear status → field_28
+            const payload = {};
+
+            if (updates.status !== undefined) {
+                payload["field_28"] = updates.status; // obrigatório para o backend
+            }
+
+            const resp = await fetch(`${API_BASE_URL}/demanda/${id}`, {
+                method: "PATCH", // PATCH mesmo, não PUT
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(updates)
+                body: JSON.stringify(payload)
             });
+
             if (!resp.ok) throw new Error(`API Error: ${resp.status}`);
+
             return await resp.json();
         } catch (e) {
             console.error(`Failed to update task ${id}:`, e);
