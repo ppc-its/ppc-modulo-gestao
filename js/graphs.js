@@ -36,14 +36,12 @@ const ROLE_MAPPINGS = [
 // Global Chart Instances
 let chartTypeInstance = null;
 let chartStatusInstance = null;
-let chartTimelineInstance = null;
+// chartTimelineInstance REMOVED
 let chartResponsibleInstance = null;
 let APP_DATA = []; // Will hold the loaded data
 const LOCAL_STORAGE_KEY = "ppc_task_board_data_v1";
 
 // Hardcoded "Today" for consistency (or use real today?)
-// Using real today for functional usage, but for demo consistency with mock data we used a fixed date.
-// Since we are now syncing with REAL data, we should probably use REAL today.
 const TODAY = new Date();
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -55,77 +53,78 @@ if (typeof ChartDataLabels !== 'undefined') {
     Chart.register(ChartDataLabels);
 }
 
-function init() {
-    loadData();
+async function init() {
+    await loadData();
     populateFilters();
     // Initialize with default metric 'hours' (Total)
     initCharts(APP_DATA, 'hours');
     setupEventListeners();
 }
 
-function loadData() {
+async function loadData() {
     try {
-        const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (raw) {
-            const parsed = JSON.parse(raw);
-            if (parsed.tasks && Array.isArray(parsed.tasks)) {
-                APP_DATA = parsed.tasks.map(t => {
-                    // Extract assignments
-                    const assignments = [];
-                    ROLE_MAPPINGS.forEach(map => {
-                        const name = (t.raw?.[map.nameKey] || "").trim();
-                        if (name) {
-                            // Only add if name exists
-                            // Parse specific hours if available, else 0?
-                            // For visualization "Responsible vs Capacity", we want "Horas Projeto" + "Horas Adm" typically?
-                            // Or just "Horas Totais" for that person?
-                            // Logic: Total for Person = Proj + Adm specific to them.
-                            let hProj = 0;
-                            let hAdm = 0;
-                            if (map.hoursKey) hProj = parseFloat(t.raw?.[map.hoursKey] || 0);
-                            if (map.admKey) hAdm = parseFloat(t.raw?.[map.admKey] || 0);
+        const tasks = await api.getTasks();
+        if (tasks && Array.isArray(tasks)) {
+            APP_DATA = tasks.map(t => {
+                // Determine raw object (API might return raw directly or wrapped)
+                const raw = t.raw || t;
 
-                            // fallback safety: if keys exist but NaN, 0.
-                            if (isNaN(hProj)) hProj = 0;
-                            if (isNaN(hAdm)) hAdm = 0;
+                // Extract assignments
+                const assignments = [];
+                ROLE_MAPPINGS.forEach(map => {
+                    const name = (raw[map.nameKey] || "").trim();
+                    if (name) {
+                        let hProj = 0;
+                        let hAdm = 0;
+                        if (map.hoursKey) hProj = parseFloat(raw[map.hoursKey] || 0);
+                        if (map.admKey) hAdm = parseFloat(raw[map.admKey] || 0);
 
-                            assignments.push({
-                                role: map.role,
-                                person: name,
-                                hoursProject: hProj,
-                                hoursAdm: hAdm,
-                                hoursTotal: hProj + hAdm
-                            });
-                        }
-                    });
+                        // fallback safety
+                        if (isNaN(hProj)) hProj = 0;
+                        if (isNaN(hAdm)) hAdm = 0;
 
-                    // Map app.js structure to graphs.js structure
-                    return {
-                        client: t.raw?.["Nome Cliente"] || t.title || "Sem Cliente",
-                        owner: t.responsible || "Sem Responsável", // Primary owner still useful for some things?
-                        assignments: assignments, // NEW: All involved people
-                        type: t.demandType || "OUTROS",
-                        status: t.status || "Backlog",
-                        hours: parseFloat(t.hoursTotal || 0),
-                        hoursAdm: parseFloat(t.hoursAdm || 0),
-                        // Try to parse end date, fallback to start, fallback to today
-                        date: parseDate(t.dates?.end || t.dates?.start),
-                        raw: t.raw
-                    };
+                        assignments.push({
+                            role: map.role,
+                            person: name,
+                            hoursProject: hProj,
+                            hoursAdm: hAdm,
+                            hoursTotal: hProj + hAdm
+                        });
+                    }
                 });
-                return;
-            }
+
+                // Helper to parse dates simply
+                const dateStart = parseDate(raw["Data Início (Previsão)"]);
+                const dateEnd = parseDate(raw["Data Conclusão (Previsão)"]);
+
+                // Map structure
+                return {
+                    client: raw["Nome Cliente"] || t.title || "Sem Cliente",
+                    title: t.title || raw["Detalhe da demanda (Escopo)"] || "Demanda", // Ensure title exists
+                    owner: t.responsible || raw["Responsável Demanda"] || "Sem Responsável",
+                    assignments: assignments,
+                    type: t.demandType || raw["Tipo de Demanda"] || "OUTROS",
+                    status: t.status || raw["Status"] || "Backlog",
+                    hours: parseFloat(raw["Horas"] || t.hoursTotal || 0),
+                    hoursAdm: parseFloat(raw["Horas ADM"] || t.hoursAdm || 0),
+                    date: dateEnd, // Keep generic date as End Date for legacy logic
+                    dateStart: dateStart,
+                    dateEnd: dateEnd,
+                    raw: raw
+                };
+            });
+            return;
         }
     } catch (e) {
-        console.error("Error loading data from localStorage", e);
+        console.error("Error loading data from API", e);
     }
 
-    // Fallback if no data found (empty array to avoid crash)
+    // Fallback if no data found
     APP_DATA = [];
 }
 
 function parseDate(dateStr) {
-    if (!dateStr) return new Date(); // Fallback to now
+    if (!dateStr) return null; // Return null if empty
 
     // Try standard Date parse (works for ISO and M/D/Y)
     let d = new Date(dateStr);
@@ -139,7 +138,7 @@ function parseDate(dateStr) {
         if (!isNaN(d.getTime())) return d;
     }
 
-    return new Date();
+    return null; // Return null if invalid
 }
 
 /**
@@ -148,8 +147,6 @@ function parseDate(dateStr) {
 function populateFilters() {
     const clientSet = new Set();
     const ownerSet = new Set();
-
-
 
     APP_DATA.forEach(item => {
         if (item.client) clientSet.add(item.client);
@@ -216,7 +213,7 @@ function applyFilters() {
         }
 
         // Date Logic for Period
-        const itemDate = item.date;
+        const itemDate = item.date || new Date(); // Fallback for sort
 
         if (period === '30') {
             const diffTime = Math.abs(TODAY - itemDate);
@@ -264,16 +261,6 @@ function initCharts(data, metric) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    position: 'right',
-                    labels: {
-                        font: { family: 'ui-sans-serif, system-ui', size: 12 },
-                        usePointStyle: true,
-                        padding: 20
-                    }
-                }
-            },
             cutout: '65%',
             plugins: {
                 legend: {
@@ -286,20 +273,12 @@ function initCharts(data, metric) {
                 },
                 datalabels: {
                     color: '#fff',
-                    font: {
-                        weight: 'bold',
-                        size: 14
-                    },
+                    font: { weight: 'bold', size: 14 },
                     formatter: (value, ctx) => {
                         let sum = 0;
                         let dataArr = ctx.chart.data.datasets[0].data;
-                        dataArr.map(data => {
-                            sum += data;
-                        });
+                        dataArr.map(data => { sum += data; });
                         let percentage = (value * 100 / sum).toFixed(1) + "%";
-                        // Only show if > 5% to avoid clutter, or if user really wants all... 
-                        // User said "sempre na tela" but "visual e bonito". 
-                        // Too many small slices = ugly. Let's threshold at 3%.
                         if ((value * 100 / sum) < 3) return "";
                         return percentage;
                     },
@@ -307,17 +286,13 @@ function initCharts(data, metric) {
                 }
             }
         },
-        plugins: [ChartDataLabels] // Activate for this chart
+        plugins: [ChartDataLabels]
     });
 
-    // Common DataLabels Defaults for Bars/Lines
+    // Common DataLabels Defaults
     const commonDataLabels = {
         color: '#333',
-        font: {
-            weight: 'bold',
-            size: 13, // Increased from 11
-            family: 'ui-sans-serif, system-ui'
-        },
+        font: { weight: 'bold', size: 13, family: 'ui-sans-serif, system-ui' },
         formatter: (value) => {
             if (value === 0) return "";
             return Math.round(value);
@@ -351,59 +326,17 @@ function initCharts(data, metric) {
                     ...commonDataLabels,
                     anchor: 'end',
                     align: 'top',
-                    offset: -4, // Adjustment for larger font
+                    offset: -4,
                     color: '#0b4f78',
-                    font: { weight: '900', size: 14 } // Extra bold for status
+                    font: { weight: '900', size: 14 }
                 }
             }
         },
         plugins: [ChartDataLabels]
     });
 
-    // 3. Timeline
-    const timelineData = processTimelineData(data, metric);
-    const ctxTimeline = document.getElementById('chartTimeline').getContext('2d');
-    chartTimelineInstance = new Chart(ctxTimeline, {
-        type: 'line',
-        data: {
-            labels: Object.keys(timelineData).sort(),
-            datasets: [{
-                label: getMetricLabel(metric),
-                data: Object.keys(timelineData).sort().map(k => timelineData[k]),
-                borderColor: '#123e5d',
-                backgroundColor: 'rgba(18, 62, 93, 0.1)',
-                tension: 0.4,
-                fill: true,
-                pointBackgroundColor: '#fff',
-                pointBorderColor: '#123e5d',
-                pointRadius: 6,
-                borderWidth: 3
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { intersect: false, mode: 'index' },
-            scales: {
-                y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
-                x: { grid: { display: false } }
-            },
-            plugins: {
-                legend: { display: true },
-                datalabels: {
-                    display: 'auto',
-                    backgroundColor: '#fff',
-                    borderRadius: 4,
-                    color: '#123e5d',
-                    font: { weight: 'bold', size: 10 },
-                    padding: 4,
-                    align: 'top',
-                    offset: 4
-                }
-            }
-        },
-        plugins: [ChartDataLabels]
-    });
+    // 3. Delivery Dashboard Initial Render
+    renderDeliveryDashboard(data);
 
     // 4. Responsible vs Capacity
     const respData = processResponsibleData(data, metric);
@@ -419,23 +352,16 @@ function initCharts(data, metric) {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                y: {
-                    stacked: true,
-                    beginAtZero: true,
-                    grid: { color: 'rgba(0,0,0,0.05)' }
-                },
-                x: {
-                    stacked: true,
-                    grid: { display: false }
-                }
+                y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+                x: { stacked: true, grid: { display: false } }
             },
             plugins: {
                 legend: { position: 'top' },
                 tooltip: { mode: 'index', intersect: false },
                 datalabels: {
                     color: '#fff',
-                    font: { weight: "bold", size: 12 }, // Increased from 10
-                    textStrokeColor: 'rgba(0,0,0,0.5)', // Add contrast
+                    font: { weight: "bold", size: 12 },
+                    textStrokeColor: 'rgba(0,0,0,0.5)',
                     textStrokeWidth: 2,
                     formatter: (value, ctx) => {
                         if (Math.abs(value) < 1) return "";
@@ -443,7 +369,7 @@ function initCharts(data, metric) {
                     },
                     display: (ctx) => {
                         const v = ctx.dataset.data[ctx.dataIndex];
-                        return Math.abs(v) > 2; // Keep hiding tiny slivers
+                        return Math.abs(v) > 2;
                     },
                     anchor: 'center',
                     align: 'center'
@@ -455,7 +381,7 @@ function initCharts(data, metric) {
 }
 
 function updateCharts(data, metric, viewMode = 'individual') {
-    // 1. Type (If 'all', use 'hours' as default to avoid toggle confusion, or keeps simple)
+    // 1. Type
     const typeMetric = (metric === 'all') ? 'hours' : metric;
     const typeData = processTypeData(data, typeMetric);
     chartTypeInstance.data.labels = Object.keys(typeData);
@@ -467,37 +393,17 @@ function updateCharts(data, metric, viewMode = 'individual') {
         const dTotal = processStatusData(data, 'hours');
         const dProj = processStatusData(data, 'hoursProject');
         const dAdm = processStatusData(data, 'hoursAdm');
-
-        // Ensure consistent key order
         const labels = Object.keys(dTotal).sort();
-
         chartStatusInstance.data.labels = labels;
         chartStatusInstance.data.datasets = [
-            {
-                label: 'Horas Totais',
-                data: labels.map(k => dTotal[k]),
-                backgroundColor: '#0b4f78',
-                borderRadius: 6
-            },
-            {
-                label: 'Horas Projeto',
-                data: labels.map(k => dProj[k]),
-                backgroundColor: '#36A2EB',
-                borderRadius: 6
-            },
-            {
-                label: 'Horas ADM',
-                data: labels.map(k => dAdm[k]),
-                backgroundColor: '#FF9F40',
-                borderRadius: 6
-            }
+            { label: 'Horas Totais', data: labels.map(k => dTotal[k]), backgroundColor: '#0b4f78', borderRadius: 6 },
+            { label: 'Horas Projeto', data: labels.map(k => dProj[k]), backgroundColor: '#36A2EB', borderRadius: 6 },
+            { label: 'Horas ADM', data: labels.map(k => dAdm[k]), backgroundColor: '#FF9F40', borderRadius: 6 }
         ];
     } else {
         const statusData = processStatusData(data, metric);
-        const labels = Object.keys(statusData).sort(); // Sort for consistency
-
+        const labels = Object.keys(statusData).sort();
         chartStatusInstance.data.labels = labels;
-        // Reset to single dataset if switching back from 'all'
         chartStatusInstance.data.datasets = [{
             label: getMetricLabel(metric),
             data: labels.map(k => statusData[k]),
@@ -507,169 +413,184 @@ function updateCharts(data, metric, viewMode = 'individual') {
     }
     chartStatusInstance.update();
 
-    // 3. Timeline
-    if (metric === 'all') {
-        const dTotal = processTimelineData(data, 'hours');
-        const dProj = processTimelineData(data, 'hoursProject');
-        const dAdm = processTimelineData(data, 'hoursAdm');
-
-        // Union of all keys/dates would be safer, but data is same source
-        const keys = Object.keys(dTotal).sort();
-
-        chartTimelineInstance.data.labels = keys;
-        chartTimelineInstance.data.datasets = [
-            {
-                label: 'Horas Totais',
-                data: keys.map(k => dTotal[k]),
-                borderColor: '#0b4f78',
-                backgroundColor: 'rgba(11, 79, 120, 0.1)',
-                tension: 0.4,
-                fill: false,
-                pointRadius: 4
-            },
-            {
-                label: 'Horas Projeto',
-                data: keys.map(k => dProj[k]),
-                borderColor: '#36A2EB',
-                backgroundColor: 'rgba(54, 162, 235, 0.1)',
-                tension: 0.4,
-                fill: false,
-                pointRadius: 4
-            },
-            {
-                label: 'Horas ADM',
-                data: keys.map(k => dAdm[k]),
-                borderColor: '#FF9F40',
-                backgroundColor: 'rgba(255, 159, 64, 0.1)',
-                tension: 0.4,
-                fill: false,
-                pointRadius: 4
-            }
-        ];
-    } else {
-        const timelineData = processTimelineData(data, metric);
-        const sortedKeys = Object.keys(timelineData).sort();
-        chartTimelineInstance.data.labels = sortedKeys;
-        chartTimelineInstance.data.datasets = [{
-            label: getMetricLabel(metric),
-            data: sortedKeys.map(k => timelineData[k]),
-            borderColor: '#123e5d',
-            backgroundColor: 'rgba(18, 62, 93, 0.1)',
-            tension: 0.4,
-            fill: true,
-            pointBackgroundColor: '#fff',
-            pointBorderColor: '#123e5d',
-            pointRadius: 6,
-            borderWidth: 3
-        }];
-    }
-    chartTimelineInstance.update();
+    // 3. Update Delivery Dashboard
+    renderDeliveryDashboard(data);
 
     // 4. Responsible vs Capacity
     const respMetric = (metric === 'all') ? 'hours' : metric;
-
-    if (chartResponsibleInstance) {
-        chartResponsibleInstance.destroy();
-    }
-
+    if (chartResponsibleInstance) chartResponsibleInstance.destroy();
     const ctxResp = document.getElementById('chartResponsible').getContext('2d');
+
+    const config = {
+        type: 'bar',
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { stacked: true, grid: { display: false } }, // Swapped for indexAxis check below
+                x: { stacked: true, grid: { display: false } }
+            },
+            plugins: {
+                legend: { position: 'top' },
+                tooltip: { mode: 'index', intersect: false },
+                datalabels: {
+                    color: '#fff',
+                    font: { weight: "bold", size: 10 },
+                    formatter: (value) => Math.abs(value) < 1 ? "" : Math.round(value),
+                    display: (ctx) => Math.abs(ctx.dataset.data[ctx.dataIndex]) > 2,
+                    anchor: 'center', align: 'center'
+                }
+            }
+        },
+        plugins: [ChartDataLabels]
+    };
 
     if (viewMode === 'aggregated') {
         const aggData = processResponsibleAggregatedData(data, respMetric);
-
-        chartResponsibleInstance = new Chart(ctxResp, {
-            type: 'bar',
-            data: {
-                labels: aggData.labels,
-                datasets: buildResponsibleAggregatedDatasets(aggData)
-            },
-            options: {
-                indexAxis: 'y',
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: {
-                        stacked: true,
-                        beginAtZero: true,
-                        grid: { color: 'rgba(0,0,0,0.05)' }
-                    },
-                    y: {
-                        stacked: true,
-                        grid: { display: false }
-                    }
-                },
-                plugins: {
-                    legend: { position: 'top' },
-                    tooltip: { mode: 'index', intersect: false },
-                    datalabels: {
-                        color: '#fff',
-                        font: { weight: "bold", size: 10 },
-                        formatter: (value, ctx) => {
-                            if (Math.abs(value) < 1) return "";
-                            return Math.round(value);
-                        },
-                        display: (ctx) => {
-                            const v = ctx.dataset.data[ctx.dataIndex];
-                            return Math.abs(v) > 2;
-                        },
-                        anchor: 'center',
-                        align: 'center'
-                    }
-                }
-            },
-            plugins: [ChartDataLabels]
-        });
+        config.data = { labels: aggData.labels, datasets: buildResponsibleAggregatedDatasets(aggData) };
+        config.options.indexAxis = 'y'; // Horizontal
+        config.options.scales.x.beginAtZero = true; // x is value axis
+        config.options.scales.x.grid.color = 'rgba(0,0,0,0.05)';
     } else {
         const newRespData = processResponsibleData(data, respMetric);
-
-        chartResponsibleInstance = new Chart(ctxResp, {
-            type: 'bar',
-            data: {
-                labels: newRespData.labels,
-                datasets: buildResponsibleDatasets(newRespData)
-            },
-            options: {
-                indexAxis: 'x',
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        stacked: true,
-                        beginAtZero: true,
-                        grid: { color: 'rgba(0,0,0,0.05)' }
-                    },
-                    x: {
-                        stacked: true,
-                        grid: { display: false }
-                    }
-                },
-                plugins: {
-                    legend: { position: 'top' },
-                    tooltip: { mode: 'index', intersect: false },
-                    datalabels: {
-                        color: '#fff',
-                        font: { weight: "bold", size: 10 },
-                        formatter: (value, ctx) => {
-                            if (Math.abs(value) < 1) return "";
-                            return Math.round(value);
-                        },
-                        display: (ctx) => {
-                            const v = ctx.dataset.data[ctx.dataIndex];
-                            return Math.abs(v) > 2;
-                        },
-                        anchor: 'center',
-                        align: 'center'
-                    }
-                }
-            },
-            plugins: [ChartDataLabels]
-        });
+        config.data = { labels: newRespData.labels, datasets: buildResponsibleDatasets(newRespData) };
+        config.options.indexAxis = 'x'; // Vertical
+        config.options.scales.y.beginAtZero = true; // y is value axis
+        config.options.scales.y.grid.color = 'rgba(0,0,0,0.05)';
     }
+
+    chartResponsibleInstance = new Chart(ctxResp, config);
+}
+
+/* =========================================
+   DELIVERY DASHBOARD LOGIC
+   ========================================= */
+function renderDeliveryDashboard(data) {
+    const container = document.getElementById('deliveryDashboard');
+    if (!container) return;
+    container.innerHTML = "";
+
+    // 1. Separate into Overdue, Today, Upcoming
+    // Ignore Completed/Cancelled items? Usually Dashboard focuses on pending. 
+    // The user said "prazos que temos proximos e vencidos" - implies pending.
+    // However, the "Prazo" filter on the left (deadlineSelect) already controls this somewhat.
+    // Let's Respect the passed 'data' array which is already filtered by sidebar.
+    // BUT, commonly "Done" items shouldn't be in "Proximos" list even if they match filter.
+    // Let's filter out 'Concluída'/'Cancelada' unless user explicitly wants history?
+    // User asked: "Entregas... Prazos proximos e vencidos". Likely Pending.
+
+    const activeData = data.filter(d => d.status !== 'Concluída' && d.status !== 'Cancelada');
+
+    const overdue = [];
+    const today = [];
+    const upcoming = [];
+
+    // Sort by Date End
+    activeData.sort((a, b) => {
+        const da = a.dateEnd || new Date(9999, 0, 1);
+        const db = b.dateEnd || new Date(9999, 0, 1);
+        return da - db;
+    });
+
+    const now = new Date();
+    // Reset time for comparison
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+
+    activeData.forEach(item => {
+        if (!item.dateEnd) {
+            upcoming.push(item); // No date = assumes future/backlog
+            return;
+        }
+
+        const d = item.dateEnd;
+        // Check if strictly before today
+        if (d < todayStart) {
+            overdue.push(item);
+        } else if (d >= todayStart && d <= todayEnd) {
+            today.push(item);
+        } else {
+            upcoming.push(item);
+        }
+    });
+
+    // Render Function
+    const createSection = (title, items, type) => {
+        if (items.length === 0) return;
+
+        const section = document.createElement('div');
+        section.className = 'dashboard-section';
+
+        const header = document.createElement('div');
+        header.className = `section-header ${type}`;
+        header.innerHTML = `<span>${title}</span> <span style="font-weight:400; color:#94a3b8; font-size:12px; margin-left:auto">${items.length}</span>`;
+        section.appendChild(header);
+
+        items.forEach(item => {
+            const card = document.createElement('div');
+            card.className = `delivery-item ${type}`;
+
+            // Format Dates
+            const startStr = item.dateStart ? item.dateStart.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '—';
+            const endStr = item.dateEnd ? item.dateEnd.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '—';
+
+            // Avatar Initials
+            const avatarsHtml = item.assignments.length > 0
+                ? item.assignments.slice(0, 3).map(a => `<div class="mini-avatar" title="${a.person} (${a.role})">${initials(a.person)}</div>`).join('')
+                : `<div class="mini-avatar" title="${item.owner}">${initials(item.owner)}</div>`;
+
+            card.innerHTML = `
+                <div class="status-line"></div>
+                <div class="delivery-content">
+                    <div class="delivery-meta">
+                        <span class="client-badge">${item.client}</span>
+                        <span style="color:#94a3b8">•</span>
+                        <span>${item.type}</span>
+                    </div>
+                    <div class="delivery-title">${item.title}</div>
+                    <div class="delivery-responsibles">
+                        <span style="font-size:11px; color:#64748b">Resp:</span>
+                        <div class="avatar-group">${avatarsHtml}</div>
+                    </div>
+                </div>
+                <div class="delivery-info">
+                   <div class="delivery-date-group">
+                       <span class="date-label">Prazo</span>
+                       <span class="date-value ${type === 'overdue' ? 'alert' : ''}">${endStr}</span>
+                   </div>
+                   <div class="delivery-date-group" style="opacity:0.6">
+                       <span class="date-label">Início</span>
+                       <span class="date-value" style="font-weight:400">${startStr}</span>
+                   </div>
+                </div>
+            `;
+            section.appendChild(card);
+        });
+
+        container.appendChild(section);
+    };
+
+    if (overdue.length === 0 && today.length === 0 && upcoming.length === 0) {
+        container.innerHTML = '<div class="empty-state">Nenhuma entrega pendente para os filtros selecionados.</div>';
+    } else {
+        createSection('Vencidos / Atrasados', overdue, 'overdue');
+        createSection('Entregas Hoje', today, 'today');
+        createSection('Próximas Entregas', upcoming, 'upcoming');
+    }
+}
+
+function initials(name) {
+    const s = String(name || "").trim();
+    if (!s) return "?";
+    const parts = s.split(/\s+/).filter(Boolean);
+    const a = (parts[0]?.[0] || "").toUpperCase();
+    const b = (parts.length > 1 ? parts[parts.length - 1]?.[0] : parts[0]?.[1]) || "";
+    return (a + String(b).toUpperCase()).slice(0, 2);
 }
 
 // Helpers
 function getMetricValue(item, metric) {
-    const val = parseFloat(item[metric] || 0); // covers 'hours' and 'hoursAdm'
+    const val = parseFloat(item[metric] || 0);
     if (metric === 'hoursProject') {
         const total = parseFloat(item.hours || 0);
         const adm = parseFloat(item.hoursAdm || 0);
@@ -704,20 +625,6 @@ function processStatusData(data, metric) {
     return res;
 }
 
-function processTimelineData(data, metric) {
-    const res = {};
-    data.forEach(d => {
-        const val = getMetricValue(d, metric);
-        // Date formatting for key (YYYY-MM-DD or DD/MM)
-        // Let's use simplified date string
-        if (d.date) {
-            const k = d.date.toLocaleDateString('pt-BR');
-            res[k] = (res[k] || 0) + val;
-        }
-    });
-    return res;
-}
-
 function processResponsibleData(data, metric) {
     const monthMap = new Map();
     const personSet = new Set();
@@ -726,55 +633,41 @@ function processResponsibleData(data, metric) {
     const uniquePersonsPerMonth = {};
 
     data.forEach(d => {
-        if (!d.date) return;
-        const y = d.date.getFullYear();
-        const m = d.date.getMonth() + 1;
+        const dateRef = d.dateEnd || d.date || new Date();
+        const y = dateRef.getFullYear();
+        const m = dateRef.getMonth() + 1;
         const monthKey = `${y}-${String(m).padStart(2, '0')}`;
-        const label = d.date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+        const label = dateRef.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
 
         monthMap.set(monthKey, label);
 
-        // Iterate assignments instead of just 'owner'
-        // If no assignments (e.g. old data), fallback?
-        // Assignments should be populated.
         d.assignments.forEach(assign => {
             if (!assign.person) return;
-
-            // Filter out roles that don't track hours (Sócio/Gerente) from the VISUAL chart if they have 0 hours?
-            // Users usually only want to see people who have load.
-            // But if they have hours, show them.
 
             const person = assign.person;
             personSet.add(person);
 
-            // Determine value for this person/role
             let val = 0;
             if (metric === 'hours') val = assign.hoursTotal;
             else if (metric === 'hoursAdm') val = assign.hoursAdm;
             else if (metric === 'hoursProject') val = assign.hoursProject;
-            else val = assign.hoursTotal; // default
+            else val = assign.hoursTotal;
 
             const key = `${monthKey}|${person}`;
             values[key] = (values[key] || 0) + val;
 
-            // Totais
             monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + val;
 
-            // Capacity Unique Track
             if (!uniquePersonsPerMonth[monthKey]) {
                 uniquePersonsPerMonth[monthKey] = new Set();
             }
-            // Only add to capacity if it's a technical role (has hours)
-            // Sócio/Gerente are usually oversight. 
-            // We check if the role is NOT Sócio or Gerente
             if (assign.role !== 'Sócio' && assign.role !== 'Gerente') {
                 uniquePersonsPerMonth[monthKey].add(person);
             }
         });
 
-        // Fallback for legacy data without assignments structure?
+        // Fallback
         if (d.assignments.length === 0 && d.owner) {
-            // Treat as generic 'owner' with total hours (legacy behavior)
             const person = d.owner;
             personSet.add(person);
             const val = getMetricValue(d, metric);
@@ -789,7 +682,6 @@ function processResponsibleData(data, metric) {
     const sortedMonthKeys = [...monthMap.keys()].sort();
     const sortedPersons = [...personSet].sort();
 
-    // Calculate Monthly Capacity
     const monthlyCapacity = {};
     sortedMonthKeys.forEach(k => {
         const count = uniquePersonsPerMonth[k] ? uniquePersonsPerMonth[k].size : 0;
@@ -806,162 +698,75 @@ function processResponsibleData(data, metric) {
     };
 }
 
-function processResponsibleAggregatedData(data, metric) {
-    const monthMap = new Map();
-    const values = {};
-    const uniquePersonsPerMonth = {};
-
-    data.forEach(d => {
-        if (!d.date) return;
-        const y = d.date.getFullYear();
-        const m = d.date.getMonth() + 1;
-        const monthKey = `${y}-${String(m).padStart(2, '0')}`;
-        const label = d.date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
-
-        monthMap.set(monthKey, label);
-
-        // Sum metric from assignments
-        d.assignments.forEach(assign => {
-            let val = 0;
-            if (metric === 'hours') val = assign.hoursTotal;
-            else if (metric === 'hoursAdm') val = assign.hoursAdm;
-            else if (metric === 'hoursProject') val = assign.hoursProject;
-            else val = assign.hoursTotal;
-
-            values[monthKey] = (values[monthKey] || 0) + val;
-
-            if (!uniquePersonsPerMonth[monthKey]) uniquePersonsPerMonth[monthKey] = new Set();
-
-            // Only add capacity for technical roles
-            if (assign.role !== 'Sócio' && assign.role !== 'Gerente' && assign.person) {
-                uniquePersonsPerMonth[monthKey].add(assign.person);
-            }
-        });
-
-        // Legacy fallback
-        if (d.assignments.length === 0 && d.owner) {
-            const val = getMetricValue(d, metric);
-            values[monthKey] = (values[monthKey] || 0) + val;
-            if (!uniquePersonsPerMonth[monthKey]) uniquePersonsPerMonth[monthKey] = new Set();
-            uniquePersonsPerMonth[monthKey].add(d.owner);
-        }
+function buildResponsibleDatasets(data) {
+    const datasets = data.persons.map(p => {
+        const color = stringToColor(p);
+        return {
+            label: p,
+            data: data.monthKeys.map(m => data.values[`${m}|${p}`] || 0),
+            backgroundColor: color,
+            stack: 'Stack 0',
+        };
     });
 
-    const sortedMonthKeys = [...monthMap.keys()].sort();
-
-    // Calculate capacity per month
-    // Capacity = UniquePersons * 176
-    const capacity = {};
-    sortedMonthKeys.forEach(key => {
-        const count = uniquePersonsPerMonth[key] ? uniquePersonsPerMonth[key].size : 0;
-        capacity[key] = count * 176;
-    });
-
-    return {
-        monthKeys: sortedMonthKeys,
-        labels: sortedMonthKeys.map(k => monthMap.get(k)),
-        values: values,
-        capacity: capacity
-    };
-}
-
-function buildResponsibleAggregatedDatasets(processed) {
-    const sortedKeys = processed.monthKeys;
-
-    // 1. Total Hours
-    const totalData = sortedKeys.map(k => processed.values[k] || 0);
-
-    // 2. Total Capacity
-    const capacityData = sortedKeys.map(k => processed.capacity[k] || 0);
-
-    // 3. Balance (Horas Totais - Capacidade)
-    const balanceData = sortedKeys.map(k => {
-        const tot = processed.values[k] || 0;
-        const cap = processed.capacity[k] || 0;
-        return tot - cap;
-    });
-
-    return [
-        {
-            label: 'Horas Totais (Equipe)',
-            data: totalData,
-            backgroundColor: '#0b4f78',
-            stack: 'actual',
-            borderRadius: 4,
-            barPercentage: 0.6,
-            categoryPercentage: 0.8
-        },
-        {
-            label: 'Capacidade Total (Soma)',
-            data: capacityData,
-            backgroundColor: '#9ca3af', // Gray-400
-            stack: 'capacity',
-            borderRadius: 4,
-            barPercentage: 0.6,
-            categoryPercentage: 0.8
-        },
-        {
-            label: 'Horas Restantes (Saldo)',
-            data: balanceData,
-            backgroundColor: '#9966FF', // Purple
-            stack: 'balance',
-            borderRadius: 4,
-            barPercentage: 0.6,
-            categoryPercentage: 0.8
-        }
-    ];
-}
-
-function buildResponsibleDatasets(processed) {
-    const datasets = [];
-
-    // 1. One dataset per Person
-    processed.persons.forEach((person, idx) => {
-        const dataPoints = processed.monthKeys.map(mKey => {
-            const key = `${mKey}|${person}`;
-            return processed.values[key] || 0;
-        });
-
-        datasets.push({
-            label: person,
-            data: dataPoints,
-            backgroundColor: COLORS.charts[idx % COLORS.charts.length],
-            stack: 'actual',
-            borderRadius: 4,
-            barPercentage: 0.6,
-            categoryPercentage: 0.8
-        });
-    });
-
-    // 2. Capacity Dataset (176h)
-    const capacityData = processed.monthKeys.map(() => 176);
+    // Capacity Line
     datasets.push({
-        label: 'Capacidade (176h)',
-        data: capacityData,
-        backgroundColor: '#9ca3af', // Gray-400
-        stack: 'capacity',
-        borderRadius: 4,
-        barPercentage: 0.6,
-        categoryPercentage: 0.8,
-        // Make it grouping with others? Yes standard bar.
-    });
-
-    // 3. Balance Dataset (Total - Capacity)
-    // "pilar de horas restantes (Horas Totais - Capacidade)"
-    const balanceData = processed.monthKeys.map(k => {
-        const total = processed.monthlyTotals[k] || 0;
-        const cap = processed.monthlyCapacity[k] || 0;
-        return total - cap;
-    });
-    datasets.push({
-        label: 'Horas Restantes (Saldo)',
-        data: balanceData,
-        backgroundColor: '#9966FF', // Purple
-        stack: 'balance',
-        borderRadius: 4,
-        barPercentage: 0.6,
-        categoryPercentage: 0.8
+        label: 'Capacidade (176h/pessoa)',
+        data: data.monthKeys.map(m => data.monthlyCapacity[m] || 0),
+        type: 'line',
+        borderColor: '#FF6384',
+        borderWidth: 2,
+        pointStyle: 'line',
+        fill: false,
+        datalabels: { display: false }
     });
 
     return datasets;
+}
+
+function processResponsibleAggregatedData(data, metric) {
+    // Similar to above but aggregation by Person (X) and Monthly (Stack)? OR Person (Y) and Month (Stack)...
+    // The previous implementation (not fully shown in read) wasn't fully visible but I can infer.
+    // Let's implement a simple Total by Responsible.
+    const persons = {};
+    data.forEach(d => {
+        d.assignments.forEach(a => {
+            let val = 0;
+            if (metric === 'hours') val = a.hoursTotal;
+            else if (metric === 'hoursAdm') val = a.hoursAdm;
+            else if (metric === 'hoursProject') val = a.hoursProject;
+            else val = a.hoursTotal;
+            persons[a.person] = (persons[a.person] || 0) + val;
+        });
+        if (d.assignments.length === 0 && d.owner) {
+            const val = getMetricValue(d, metric);
+            persons[d.owner] = (persons[d.owner] || 0) + val;
+        }
+    });
+
+    const sortedPersons = Object.keys(persons).sort((a, b) => persons[b] - persons[a]);
+
+    return {
+        labels: sortedPersons,
+        datasets: [{
+            label: 'Total Horas',
+            data: sortedPersons.map(p => persons[p]),
+            backgroundColor: '#0b4f78',
+            borderRadius: 4
+        }]
+    };
+}
+
+function buildResponsibleAggregatedDatasets(aggData) {
+    return aggData.datasets;
+}
+
+// Simple hash for consistent colors
+function stringToColor(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+    return '#' + "00000".substring(0, 6 - c.length) + c;
 }
