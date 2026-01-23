@@ -585,26 +585,7 @@ function hideBanner() {
   $("#banner").classList.add("hidden");
 }
 
-function exportFilteredJSON() {
-  const filtered = tasks.filter(t => {
-    if (filters.person && !(t.responsible || "").toLowerCase().includes(filters.person.toLowerCase())) return false;
-    if (filters.demandType && t.demandType !== filters.demandType) return false;
-    if (filters.query) {
-      const q = filters.query.toLowerCase();
-      const blob = [t.title, t.subtitle, t.responsible, t.raw?.["Detalhe da demanda (Escopo)"]].map(safeStr).join(" ").toLowerCase();
-      if (!blob.includes(q)) return false;
-    }
-    return true;
-  });
 
-  const content = JSON.stringify({ exportedAt: new Date().toISOString(), tasks: filtered.map(t => t.raw) }, null, 2);
-  const blob = new Blob([content], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `ppc_tasks_export_${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
 
 /* -------- Events -------- */
 function bindEvents() {
@@ -630,30 +611,7 @@ function bindEvents() {
 
   $("#btnReset").addEventListener("click", resetFilters);
 
-  $("#btnLoadCsv").addEventListener("click", () => $("#csvInput").click());
-  $("#csvInput").addEventListener("change", async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
 
-    try {
-      setBanner("Enviando CSV para o servidor...", "info");
-      const updatedList = await api.uploadCSV(file);
-
-      // Normalize received data
-      tasks = normalizeTasks(updatedList);
-
-      setUpdatedMeta(new Date().toISOString());
-      populatePeopleDropdown();
-      setBanner("Dados atualizados com sucesso!", "success");
-      setTimeout(hideBanner, 3000);
-      render();
-    } catch (err) {
-      setBanner("Erro ao enviar CSV: " + err.message, "error");
-    } finally {
-      // Reset input
-      e.target.value = "";
-    }
-  });
 
   $("#clearTypeBtn").addEventListener("click", () => {
     filters.demandType = "";
@@ -662,7 +620,7 @@ function bindEvents() {
     render();
   });
 
-  $("#btnExport").addEventListener("click", exportFilteredJSON);
+
 }
 
 async function init() {
