@@ -357,7 +357,37 @@ function initCharts(data, metric) {
             },
             plugins: {
                 legend: { position: 'top' },
-                tooltip: { mode: 'index', intersect: false },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    callbacks: {
+                        label: function (context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.parsed.y !== null) {
+                                label += Math.round(context.parsed.y) + 'h';
+                            } else if (context.parsed.x !== null) {
+                                label += Math.round(context.parsed.x) + 'h';
+                            }
+
+                            // Remaining Hours Logic
+                            if (context.dataset.label !== 'Capacidade (176h/pessoa)') {
+                                const val = context.parsed.y !== null ? context.parsed.y : context.parsed.x;
+                                const capacity = 176;
+                                const remaining = capacity - val;
+
+                                if (remaining >= 0) {
+                                    label += ` | Restantes: ${Math.round(remaining)}h`;
+                                } else {
+                                    label += ` | Excedentes: ${Math.round(Math.abs(remaining))}h`;
+                                }
+                            }
+                            return label;
+                        }
+                    }
+                },
                 datalabels: {
                     color: '#fff',
                     font: { weight: "bold", size: 12 },
@@ -432,7 +462,40 @@ function updateCharts(data, metric, viewMode = 'individual') {
             },
             plugins: {
                 legend: { position: 'top' },
-                tooltip: { mode: 'index', intersect: false },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    callbacks: {
+                        label: function (context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.parsed.y !== null) {
+                                label += Math.round(context.parsed.y) + 'h';
+                            } else if (context.parsed.x !== null) {
+                                label += Math.round(context.parsed.x) + 'h';
+                            }
+
+                            // Add Remaining Hours Logic
+                            // Only for actual data datasets, not the capacity line itself (though user might want to see context there too)
+                            // Assuming capacity is fixed 176h for this calculation as requested.
+                            if (context.dataset.label !== 'Capacidade (176h/pessoa)') {
+                                const val = context.parsed.y !== null ? context.parsed.y : context.parsed.x;
+                                const capacity = 176;
+                                const remaining = capacity - val;
+
+                                if (remaining >= 0) {
+                                    label += ` | Restantes: ${Math.round(remaining)}h`;
+                                } else {
+                                    label += ` | Excedentes: ${Math.round(Math.abs(remaining))}h`;
+                                }
+                            }
+
+                            return label;
+                        }
+                    }
+                },
                 datalabels: {
                     color: '#fff',
                     font: { weight: "bold", size: 10 },
@@ -542,12 +605,15 @@ function renderDeliveryDashboard(data) {
             card.innerHTML = `
                 <div class="status-line"></div>
                 <div class="delivery-content">
-                    <div class="delivery-meta">
-                        <span class="client-badge">${item.client}</span>
-                        <span style="color:#94a3b8">•</span>
-                        <span>${item.type}</span>
+                    <!-- Swapped: Title is now Client, Meta is now Detail/Scope -->
+                    <div class="delivery-title" title="${item.client || 'Sem Cliente'}">
+                        ${item.client || 'Cliente não identificado'}
                     </div>
-                    <div class="delivery-title">${item.title}</div>
+                    
+                    <div class="delivery-meta" style="margin-top:4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; white-space: normal;" title="${item.title}">
+                        ${item.title || 'Sem detalhes de escopo'}
+                    </div>
+
                     <div class="delivery-responsibles">
                         <span style="font-size:11px; color:#64748b">Resp:</span>
                         <div class="avatar-group">${avatarsHtml}</div>
@@ -636,7 +702,7 @@ function processResponsibleData(data, metric) {
         const dateRef = d.dateEnd || d.date || new Date();
         const y = dateRef.getFullYear();
         const m = dateRef.getMonth() + 1;
-        const monthKey = `${y}-${String(m).padStart(2, '0')}`;
+        const monthKey = `${y} -${String(m).padStart(2, '0')} `;
         const label = dateRef.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
 
         monthMap.set(monthKey, label);
@@ -653,7 +719,7 @@ function processResponsibleData(data, metric) {
             else if (metric === 'hoursProject') val = assign.hoursProject;
             else val = assign.hoursTotal;
 
-            const key = `${monthKey}|${person}`;
+            const key = `${monthKey}| ${person} `;
             values[key] = (values[key] || 0) + val;
 
             monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + val;
@@ -671,7 +737,7 @@ function processResponsibleData(data, metric) {
             const person = d.owner;
             personSet.add(person);
             const val = getMetricValue(d, metric);
-            const key = `${monthKey}|${person}`;
+            const key = `${monthKey}| ${person} `;
             values[key] = (values[key] || 0) + val;
             monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + val;
             if (!uniquePersonsPerMonth[monthKey]) uniquePersonsPerMonth[monthKey] = new Set();
@@ -703,7 +769,7 @@ function buildResponsibleDatasets(data) {
         const color = stringToColor(p);
         return {
             label: p,
-            data: data.monthKeys.map(m => data.values[`${m}|${p}`] || 0),
+            data: data.monthKeys.map(m => data.values[`${m}| ${p} `] || 0),
             backgroundColor: color,
             stack: 'Stack 0',
         };
