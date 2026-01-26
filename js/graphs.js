@@ -62,65 +62,90 @@ async function init() {
 }
 
 async function loadData() {
+    // 1. Try LocalStorage FIRST (To ensure sync with what user sees on Board)
+    try {
+        const rawLocal = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (rawLocal) {
+            const parsed = JSON.parse(rawLocal);
+            const localTasks = parsed.tasks || [];
+            if (Array.isArray(localTasks) && localTasks.length > 0) {
+                console.log("Loaded data from LocalStorage (Sync with Board)");
+                APP_DATA = processTasks(localTasks);
+                return; // Use local data and skip API
+            }
+        }
+    } catch (err) {
+        console.warn("Error loading from LocalStorage", err);
+    }
+
+    // 2. Fallback to API if LocalStorage is empty/missing
+    console.log("LocalStorage empty, trying API...");
     try {
         const tasks = await api.getTasks();
         if (tasks && Array.isArray(tasks)) {
-            APP_DATA = tasks.map(t => {
-                // Determine raw object (API might return raw directly or wrapped)
-                const raw = t.raw || t;
-
-                // Extract assignments
-                const assignments = [];
-                ROLE_MAPPINGS.forEach(map => {
-                    const name = (raw[map.nameKey] || "").trim();
-                    if (name) {
-                        let hProj = 0;
-                        let hAdm = 0;
-                        if (map.hoursKey) hProj = parseFloat(raw[map.hoursKey] || 0);
-                        if (map.admKey) hAdm = parseFloat(raw[map.admKey] || 0);
-
-                        // fallback safety
-                        if (isNaN(hProj)) hProj = 0;
-                        if (isNaN(hAdm)) hAdm = 0;
-
-                        assignments.push({
-                            role: map.role,
-                            person: name,
-                            hoursProject: hProj,
-                            hoursAdm: hAdm,
-                            hoursTotal: hProj + hAdm
-                        });
-                    }
-                });
-
-                // Helper to parse dates simply
-                const dateStart = parseDate(raw["Data Início (Previsão)"]);
-                const dateEnd = parseDate(raw["Data Conclusão (Previsão)"]);
-
-                // Map structure
-                return {
-                    client: raw["Nome Cliente"] || t.title || "Sem Cliente",
-                    title: t.title || raw["Detalhe da demanda (Escopo)"] || "Demanda", // Ensure title exists
-                    owner: t.responsible || raw["Responsável Demanda"] || "Sem Responsável",
-                    assignments: assignments,
-                    type: t.demandType || raw["Tipo de Demanda"] || "OUTROS",
-                    status: t.status || raw["Status"] || "Backlog",
-                    hours: parseFloat(raw["Horas"] || t.hoursTotal || 0),
-                    hoursAdm: parseFloat(raw["Horas ADM"] || t.hoursAdm || 0),
-                    date: dateEnd, // Keep generic date as End Date for legacy logic
-                    dateStart: dateStart,
-                    dateEnd: dateEnd,
-                    raw: raw
-                };
-            });
+            APP_DATA = processTasks(tasks);
             return;
         }
     } catch (e) {
         console.error("Error loading data from API", e);
     }
 
-    // Fallback if no data found
+    // 3. Last resort: empty
     APP_DATA = [];
+}
+
+/**
+ * Shared processing logic for API and Local data
+ */
+function processTasks(tasks) {
+    return tasks.map(t => {
+        // Determine raw object (API might return raw directly or wrapped)
+        const raw = t.raw || t;
+
+        // Extract assignments
+        const assignments = [];
+        ROLE_MAPPINGS.forEach(map => {
+            const name = (raw[map.nameKey] || "").trim();
+            if (name) {
+                let hProj = 0;
+                let hAdm = 0;
+                if (map.hoursKey) hProj = parseFloat(raw[map.hoursKey] || 0);
+                if (map.admKey) hAdm = parseFloat(raw[map.admKey] || 0);
+
+                // fallback safety
+                if (isNaN(hProj)) hProj = 0;
+                if (isNaN(hAdm)) hAdm = 0;
+
+                assignments.push({
+                    role: map.role,
+                    person: name,
+                    hoursProject: hProj,
+                    hoursAdm: hAdm,
+                    hoursTotal: hProj + hAdm
+                });
+            }
+        });
+
+        // Helper to parse dates simply
+        const dateStart = parseDate(raw["Data Início (Previsão)"]);
+        const dateEnd = parseDate(raw["Data Conclusão (Previsão)"]);
+
+        // Map structure
+        return {
+            client: raw["Nome Cliente"] || t.title || "Sem Cliente",
+            title: t.title || raw["Detalhe da demanda (Escopo)"] || "Demanda", // Ensure title exists
+            owner: t.responsible || raw["Responsável Demanda"] || "Sem Responsável",
+            assignments: assignments,
+            type: t.demandType || raw["Tipo de Demanda"] || "OUTROS",
+            status: t.status || raw["Status"] || "Backlog",
+            hours: parseFloat(raw["Horas"] || t.hoursTotal || 0),
+            hoursAdm: parseFloat(raw["Horas ADM"] || t.hoursAdm || 0),
+            date: dateEnd, // Keep generic date as End Date for legacy logic
+            dateStart: dateStart,
+            dateEnd: dateEnd,
+            raw: raw
+        };
+    });
 }
 
 function parseDate(dateStr) {

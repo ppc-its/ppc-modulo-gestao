@@ -42,6 +42,18 @@
           <button class="btn ghost hidden" id="clearTypeBtn" title="Limpar filtro de tipo">Tipo: limpar</button>
         </div>
 
+        <div class="separator"></div>
+
+        <div class="btnrow">
+          <input type="file" id="csvFile" accept=".csv" class="hidden" />
+          <button class="btn primary" id="btnLoadCsv" title="Carregar dados locais (não envia ao servidor)">📂 Carregar
+            CSV</button>
+        </div>
+
+        <div class="btnrow">
+          <button class="btn ghost" id="btnExportJson" title="Baixar dados atuais como JSON">💾 Exportar JSON</button>
+        </div>
+
         <!-- <div class="filehint">
           ✅ <b>Funciona abrindo o HTML direto</b> (file://).<br />
           Se não estiver servindo via HTTP, use <b>Carregar CSV</b> para atualizar os dados do dia.<br />

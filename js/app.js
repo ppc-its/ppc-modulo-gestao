@@ -254,11 +254,14 @@ function handleDrop(e, targetStatusKey) {
         console.log("Task updated:", updated);
         // Update meta updated time if server returns it, or just now
         setUpdatedMeta(new Date().toISOString());
+        // Sync to LS so graphs are updated
+        saveToLocalStorage(tasks);
       })
       .catch(err => {
         console.error("Failed to update status, reverting", err);
         // Revert
         task.status = oldStatus;
+        saveToLocalStorage(tasks); // Sync revert
         render();
         alert("Erro ao atualizar status. Verifique o console.");
       });
@@ -620,7 +623,61 @@ function bindEvents() {
     render();
   });
 
+  // --- Local CSV Upload ---
+  const btnLoadCsv = $("#btnLoadCsv");
+  const fileInput = $("#csvFile");
 
+  if (btnLoadCsv && fileInput) {
+    btnLoadCsv.addEventListener("click", () => fileInput.click());
+
+    fileInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const text = evt.target.result;
+        try {
+          const rawData = parseCSV(text);
+          tasks = normalizeTasks(rawData);
+
+          // Save to local storage for persistence in "Local Mode"
+          saveToLocalStorage(tasks);
+
+          // Update UI
+          setUpdatedMeta(new Date().toISOString());
+          populatePeopleDropdown();
+          syncControls();
+          render();
+
+          setBanner("Modo Local: Dados carregados do CSV localmente. (Não sincronizado com servidor)", "success");
+        } catch (err) {
+          console.error(err);
+          alert("Erro ao ler CSV: " + err.message);
+        }
+      };
+      reader.readAsText(file);
+      // clear value so we can reload same file if needed
+      e.target.value = "";
+    });
+  }
+
+  // --- Export JSON ---
+  const btnExport = $("#btnExportJson");
+  if (btnExport) {
+    btnExport.addEventListener("click", () => {
+      const dataStr = JSON.stringify({ tasks, exportedAt: new Date() }, null, 2);
+      const blob = new Blob([dataStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ppc_tasks_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+  }
 }
 
 async function init() {
@@ -632,6 +689,8 @@ async function init() {
     const list = await api.getTasks();
     tasks = normalizeTasks(list);
     setUpdatedMeta(new Date().toISOString());
+    // SYNC: Save the API state to LS so graphs see it immediately (and seeing the same version)
+    saveToLocalStorage(tasks);
     hideBanner();
   } catch (err) {
     console.warn("API load failed, falling back to sample or empty", err);
