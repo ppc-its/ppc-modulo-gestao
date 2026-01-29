@@ -1,6 +1,6 @@
 /* =========================
-   PPC Task Board - Styles
-   Edit freely :)
+   PPC Task Board - Estilos
+   Edite livremente :)
    ========================= */
 :root {
   --bg: #f6f8fb;
@@ -63,7 +63,7 @@ select {
   min-height: 100%;
 }
 
-/* ===== Sidebar ===== */
+/* ===== Barra Lateral ===== */
 .sidebar {
   position: sticky;
   top: 18px;
@@ -194,7 +194,7 @@ select {
   border: 1px solid rgba(255, 255, 255, .14);
 }
 
-/* ===== Main ===== */
+/* ===== Conteúdo Principal ===== */
 .main {
   min-width: 760px;
 }
@@ -253,7 +253,7 @@ select {
   font-weight: 900;
 }
 
-/* Demand-type cards */
+/* Cartões de Tipo de Demanda */
 .type-row {
   display: flex;
   gap: 14px;
@@ -310,7 +310,7 @@ select {
   outline-offset: 2px;
 }
 
-/* Board */
+/* Quadro Kanban */
 .board {
   display: flex;
   gap: 14px;
@@ -360,7 +360,7 @@ select {
   border-top: 1px solid rgba(255, 255, 255, .12);
 }
 
-/* Task card */
+/* Cartão de Tarefa */
 .task {
   cursor: pointer;
   background: rgba(255, 255, 255, .96);
@@ -517,7 +517,7 @@ select {
   white-space: pre-wrap;
 }
 
-/* Responsive */
+/* Responsivo */
 @media (max-width: 1100px) {
   .app {
     grid-template-columns: 1fr;
@@ -533,7 +533,7 @@ select {
   }
 }
 
-/* Drag and Drop Visuals */
+/* Visuais de Arrastar e Soltar */
 .col-body.drag-over {
   background: rgba(12, 157, 228, 0.25);
   border: 2px dashed rgba(12, 157, 228, 0.5);

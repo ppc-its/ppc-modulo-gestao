@@ -1,7 +1,6 @@
-
 /* =========================
    PPC Task Board - app.js
-   Vanilla JS (no build needed)
+   Vanilla JS (sem necessidade de build)
    ========================= */
 
 const STATUS_ORDER = [
@@ -52,10 +51,10 @@ function normalizeStatus(raw) {
   // "Backlog"
   if (["backlog", "to do", "todo", "a fazer", "fila"].includes(s)) return "Backlog";
 
-  // "Em andamento" (incluindo blocked/testing pra não perder tasks)
+  // "Em andamento" (incluindo bloqueado/testando para não perder tarefas)
   if (["em andamento", "andamento", "doing", "in progress", "progresso", "fazendo", "execução"].includes(s)) return "Em andamento";
-  if (["bloqueado", "blocked", "impedido"].includes(s)) return "Em andamento"; // Mapping blocked to doing
-  if (["teste", "testing", "qa", "homologação", "homologacao", "revisão"].includes(s)) return "Em andamento"; // Mapping testing to doing
+  if (["bloqueado", "blocked", "impedido"].includes(s)) return "Em andamento"; // Mapeando bloqueado para fazendo
+  if (["teste", "testing", "qa", "homologação", "homologacao", "revisão"].includes(s)) return "Em andamento"; // Mapeando testes para fazendo
 
   // "Concluída"
   if (["concluído", "concluido", "done", "finalizado", "entregue", "concluída", "concluida"].includes(s)) return "Concluída";
@@ -63,13 +62,13 @@ function normalizeStatus(raw) {
   // "Cancelada"
   if (["cancelado", "dismissed", "descartado", "cancelada"].includes(s)) return "Cancelada";
 
-  // Default fallback
+  // Fallback padrão
   return "Backlog";
 }
 
 function detectDemandType(row) {
-  // The CSV has multiple "type columns". We'll infer the demand type:
-  // Priority: Intelidados, Cybersecurity, Auditoria TI, Consultoria de TI, Demanda Interna (PPeC), Outros
+  // O CSV tem múltiplas "colunas de tipo". Vamos inferir o tipo de demanda:
+  // Prioridade: Intelidados, Cybersecurity, Auditoria TI, Consultoria de TI, Demanda Interna (PPeC), Outros
   const intel = safeStr(row["Intelidados"]);
   const cyber = safeStr(row["Cybersecurity"]);
   const audit = safeStr(row["Auditoria TI"]);
@@ -84,7 +83,7 @@ function detectDemandType(row) {
   if (intern) return "DEMANDA INT.";
   if (outros) return "OUTROS";
 
-  // fallback by "Tipo de Demanda"
+  // fallback por "Tipo de Demanda"
   const td = safeStr(row["Tipo de Demanda"]).toLowerCase();
   if (td.includes("intel")) return "INTELIDADOS";
   if (td.includes("cyber")) return "CYBER";
@@ -98,8 +97,8 @@ function normalizeRow(row) {
   const demandType = detectDemandType(row);
   const status = normalizeStatus(row["Status"]);
 
-  // 1. normalizeRow update (lines 101)
-  const responsible = safeStr(row["Responsável Demanda"]); // Removed fallbacks to emails/clients
+  // 1. update de normalizeRow (linhas 101)
+  const responsible = safeStr(row["Responsável Demanda"]); // Removidos fallbacks para emails/clientes
 
   const client = safeStr(row["Nome Cliente"]) || safeStr(row["Contato Cliente"]) || "";
   const scopeSystem = safeStr(row["Sistema em Escopo"]);
@@ -128,9 +127,9 @@ function normalizeRow(row) {
   };
 }
 
-/* -------- CSV parsing (robust-enough for the daily file) -------- */
+/* -------- Parse de CSV (robusto o suficiente para o arquivo diário) -------- */
 function parseCSV(text) {
-  // Handles commas, quotes, and newlines in quoted fields.
+  // Lida com vírgulas, aspas e quebras de linha em campos entre aspas.
   const rows = [];
   let i = 0, field = "", row = [], inQuotes = false;
 
@@ -140,7 +139,7 @@ function parseCSV(text) {
     if (inQuotes) {
       if (c === '"') {
         const next = text[i + 1];
-        if (next === '"') { // escaped quote
+        if (next === '"') { // aspas escapadas
           field += '"';
           i += 2;
           continue;
@@ -182,7 +181,7 @@ function parseCSV(text) {
       i++;
     }
   }
-  // last line
+  // última linha
   if (field.length || row.length) {
     row.push(field);
     rows.push(row);
@@ -198,7 +197,7 @@ function parseCSV(text) {
   return data;
 }
 
-/* -------- State -------- */
+/* -------- Estado -------- */
 let tasks = [];
 let filters = {
   person: "",
@@ -218,14 +217,14 @@ function saveFilters() {
   localStorage.setItem(LOCAL_FILTERS_KEY, JSON.stringify(filters));
 }
 
-/* -------- Drag and Drop -------- */
+/* -------- Arrastar e Soltar -------- */
 function handleDragStart(e, task) {
   e.dataTransfer.setData("text/plain", task.id);
   e.dataTransfer.effectAllowed = "move";
 }
 
 function handleDragOver(e) {
-  e.preventDefault(); // Necessary to allow dropping
+  e.preventDefault(); // Necessário para permitir soltar
   e.dataTransfer.dropEffect = "move";
   e.currentTarget.classList.add("drag-over");
 }
@@ -242,26 +241,26 @@ function handleDrop(e, targetStatusKey) {
   const task = tasks.find(t => t.id === id);
 
   if (task && task.status !== targetStatusKey) {
-    // Optimistic Update
+    // Atualização Otimista
     const oldStatus = task.status;
     task.status = targetStatusKey;
     render();
 
-    // Call API
+    // Chamar API
     api.updateTask(id, { status: targetStatusKey })
       .then(updated => {
-        // Confirm update from server response if needed
+        // Confirmar atualização da resposta do servidor se necessário
         console.log("Task updated:", updated);
-        // Update meta updated time if server returns it, or just now
+        // Atualizar meta tempo de atualização se servidor retornar, ou apenas agora
         setUpdatedMeta(new Date().toISOString());
-        // Sync to LS so graphs are updated
+        // Sincronizar com LS para que gráficos sejam atualizados
         saveToLocalStorage(tasks);
       })
       .catch(err => {
         console.error("Failed to update status, reverting", err);
-        // Revert
+        // Reverter
         task.status = oldStatus;
-        saveToLocalStorage(tasks); // Sync revert
+        saveToLocalStorage(tasks); // Sincronizar reversão
         render();
         alert("Erro ao atualizar status. Verifique o console.");
       });
@@ -270,11 +269,11 @@ function handleDrop(e, targetStatusKey) {
 
 /* -------- UI -------- */
 function render() {
-  // Compute filtered
+  // Calcular filtrados
   const filtered = tasks.filter(t => {
     if (filters.person) {
       const p = filters.person.toLowerCase();
-      // Check if person exists in any of the target roles
+      // Verificar se pessoa existe em qualquer um dos papéis alvo
       const fields = [
         "Responsável Demanda",
         "Trainee do Projeto",
@@ -282,7 +281,7 @@ function render() {
         "Responsável Intelidados",
         "Responsável Desenvolvimento"
       ];
-      // Match partial (includes)
+      // Correspondência parcial (includes)
       const match = fields.some(key => {
         const val = safeStr(t.raw?.[key]).toLowerCase();
         return val.includes(p);
@@ -308,14 +307,14 @@ function render() {
     return true;
   });
 
-  // Update badges
+  // Atualizar badges
   $("#badgeTotal").textContent = `${filtered.length} demandas`;
   const admSum = filtered.reduce((acc, t) => acc + (t.hoursAdm || 0), 0);
   $("#badgeAdm").textContent = `${admSum.toFixed(0)}h ADM`;
 
-  // Demand type cards counts (on filtered, but ignoring demandType filter? Usually better UX)
+  // Contagem de cards por tipo de demanda (nos filtrados, mas ignorando filtro de demandType? Geralmente melhor UX)
   const baseForTypeCounts = tasks.filter(t => {
-    // apply all filters except demandType
+    // aplicar todos os filtros exceto demandType
     if (filters.person) {
       const p = filters.person.toLowerCase();
       const hay = (t.responsible || "").toLowerCase();
@@ -358,7 +357,7 @@ function render() {
     typeRow.appendChild(el);
   });
 
-  // Board columns
+  // Colunas do Board
   const board = $("#board");
   board.innerHTML = "";
 
@@ -381,7 +380,7 @@ function render() {
 
     const body = $(".col-body", col);
 
-    // Drag and Drop events for the column body
+    // Eventos de Drag and Drop para o corpo da coluna
     body.addEventListener("dragover", handleDragOver);
     body.addEventListener("dragleave", handleDragLeave);
     body.addEventListener("drop", (e) => handleDrop(e, s.key));
@@ -404,7 +403,7 @@ function renderTaskCard(t) {
   const projHours = t.hoursTotal || 0;
   const admHours = t.hoursAdm || 0;
 
-  // tags: demand type + ADM hours
+  // tags: tipo de demanda + horas ADM
   const tagType = `<div class="tag">${t.demandType}</div>`;
   const tagAdm = `<div class="tag">${admHours.toFixed(0)}h ADM</div>`;
   const tagTot = projHours ? `<div class="tag">${projHours.toFixed(0)}h total</div>` : "";
@@ -477,8 +476,8 @@ function openModal(task) {
     { label: "Horas Adm (Intelidados)", key: "Horas Adm (Intelidados)" },
 
     { label: "Responsável Desenv.", key: "Responsável Desenvolvimento" },
-    { label: "Horas Projeto (Desenv.)", key: "Horas Projeto (Desenvolvimento)" }, // Assumed key pattern
-    { label: "Horas Adm (Desenv.)", key: "Horas Adm (Desenvolvimento)" },         // Assumed key pattern
+    { label: "Horas Projeto (Desenv.)", key: "Horas Projeto (Desenvolvimento)" }, // Padrão de chave assumido
+    { label: "Horas Adm (Desenv.)", key: "Horas Adm (Desenvolvimento)" },         // Padrão de chave assumido
   ];
 
   extraFields.forEach(f => {
@@ -507,9 +506,9 @@ function closeModal() {
   $("#modalBackdrop").classList.remove("show");
 }
 
-/* -------- Data loading -------- */
+/* -------- Carregamento de dados -------- */
 async function loadFromFetch() {
-  // Works when served via HTTP (intranet / server)
+  // Funciona quando servido via HTTP (intranet / servidor)
   const resp = await fetch("./data/tasks.json", { cache: "no-store" });
   if (!resp.ok) throw new Error("fetch failed");
   const obj = await resp.json();
@@ -590,7 +589,7 @@ function hideBanner() {
 
 
 
-/* -------- Events -------- */
+/* -------- Eventos -------- */
 function bindEvents() {
   $("#modalClose").addEventListener("click", closeModal);
   $("#modalBackdrop").addEventListener("click", (e) => {
@@ -623,7 +622,7 @@ function bindEvents() {
     render();
   });
 
-  // --- Local CSV Upload ---
+  // --- Upload de CSV Local ---
   const btnLoadCsv = $("#btnLoadCsv");
   const fileInput = $("#csvFile");
 
@@ -641,10 +640,10 @@ function bindEvents() {
           const rawData = parseCSV(text);
           tasks = normalizeTasks(rawData);
 
-          // Save to local storage for persistence in "Local Mode"
+          // Salvar no local storage para persistência no "Modo Local"
           saveToLocalStorage(tasks);
 
-          // Update UI
+          // Atualizar UI
           setUpdatedMeta(new Date().toISOString());
           populatePeopleDropdown();
           syncControls();
@@ -657,12 +656,12 @@ function bindEvents() {
         }
       };
       reader.readAsText(file);
-      // clear value so we can reload same file if needed
+      // limpar valor para que possamos recarregar o mesmo arquivo se necessário
       e.target.value = "";
     });
   }
 
-  // --- Export JSON ---
+  // --- Exportar JSON ---
   const btnExport = $("#btnExportJson");
   if (btnExport) {
     btnExport.addEventListener("click", () => {
@@ -684,12 +683,12 @@ async function init() {
   loadFilters();
   bindEvents();
 
-  // API Load
+  // Carregamento da API
   try {
     const list = await api.getTasks();
     tasks = normalizeTasks(list);
     setUpdatedMeta(new Date().toISOString());
-    // SYNC: Save the API state to LS so graphs see it immediately (and seeing the same version)
+    // SYNC: Salvar o estado da API no LS para que gráficos vejam imediatamente (e vejam a mesma versão)
     saveToLocalStorage(tasks);
     hideBanner();
   } catch (err) {
@@ -706,17 +705,17 @@ async function init() {
 }
 
 /**
- * Helper to normalize a list of raw or semi-raw tasks
+ * Helper para normalizar uma lista de tarefas raw ou semi-raw
  */
 function normalizeTasks(list) {
   if (!Array.isArray(list)) return [];
   return list.map(t => {
-    // If it looks like our internal 'task' object (has id, title...), use it.
-    // If it looks like raw CSV row, normalize it.
-    // The backend might return Raw CSV rows or processed objects. 
-    // Assuming backend returns a list of dictionaries matching the CSV columns or the internal structure.
-    // Let's assume the backend returns the raw rows mainly, similar to tasks.json structure.
-    if (t.raw) return t; // Already processed
+    // Se parece com nosso objeto 'task' interno (tem id, título...), use-o.
+    // Se parece com uma linha CSV raw, normalize-a.
+    // O backend pode retornar linhas Raw CSV ou objetos processados. 
+    // Assumindo que backend retorna uma lista de dicionários correspondendo às colunas CSV ou a estrutura interna.
+    // Vamos assumir que o backend retorna as linhas raw principalmente, similar à estrutura tasks.json.
+    if (t.raw) return t; // Já processado
     return normalizeRow(t);
   });
 }
