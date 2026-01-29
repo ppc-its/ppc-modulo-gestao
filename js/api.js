@@ -1,31 +1,31 @@
 /* =========================
-   PPC Task Board - API Service
-   Centralizes all fetch calls to the Python/Flask Backend
+   PPC Task Board - Serviço de API
+   Centraliza todas as chamadas de fetch para o Backend Python/Flask
    ========================= */
 
-const API_BASE_URL = "http://localhost:5000/lists"; // Adjust port if needed
+const API_BASE_URL = "http://localhost:5000/lists"; // Ajuste a porta se necessário
 
 const api = {
     /**
-     * Fetch all tasks from the backend
+     * Busca todas as tarefas do backend
      * GET /api/tasks
      */
     async getTasks() {
         try {
             const resp = await fetch(`${API_BASE_URL}/demandas`);
-            if (!resp.ok) throw new Error(`API Error: ${resp.status}`);
+            if (!resp.ok) throw new Error(`Erro na API: ${resp.status}`);
             const data = await resp.json();
-            // Expecting { tasks: [...] } or just [...]
-            // Adjust based on actual response. Assuming list or object with tasks key.
+            // Esperando { tasks: [...] } ou apenas [...]
+            // Ajuste com base na resposta real. Assumindo lista ou objeto com chave tasks.
             return Array.isArray(data) ? data : (data.tasks || []);
         } catch (e) {
-            console.error("Failed to fetch tasks:", e);
+            console.error("Falha ao buscar tarefas:", e);
             throw e;
         }
     },
 
     /**
-     * Update a specific task (e.g. status change)
+     * Atualiza uma tarefa específica (ex: mudança de status)
      * PUT /api/tasks/:id
      */
     async updateTask(id, updates) {
@@ -43,19 +43,19 @@ const api = {
                 body: JSON.stringify(payload)
             });
 
-            if (!resp.ok) throw new Error(`API Error: ${resp.status}`);
+            if (!resp.ok) throw new Error(`Erro na API: ${resp.status}`);
 
             return await resp.json();
         } catch (e) {
-            console.error(`Failed to update task ${id}:`, e);
+            console.error(`Falha ao atualizar tarefa ${id}:`, e);
             throw e;
         }
     },
 
     /**
-     * Upload CSV file to backend for processing
+     * Envia arquivo CSV para o backend para processamento
      * POST /api/upload_csv
-     * Returns: Updated task list (or we re-fetch)
+     * Retorna: Lista de tarefas atualizada (ou buscamos novamente)
      */
     async uploadCSV(file) {
         const formData = new FormData();
@@ -66,14 +66,14 @@ const api = {
                 method: "POST",
                 body: formData
             });
-            if (!resp.ok) throw new Error(`Upload Failed: ${resp.status}`);
+            if (!resp.ok) throw new Error(`Falha no Upload: ${resp.status}`);
             return await resp.json();
         } catch (e) {
-            console.error("CSV Upload failed:", e);
+            console.error("Upload de CSV falhou:", e);
             throw e;
         }
     }
 };
 
-// Expose globally
+// Expor globalmente
 window.api = api;

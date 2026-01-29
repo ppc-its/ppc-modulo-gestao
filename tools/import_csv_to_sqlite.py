@@ -49,7 +49,7 @@ def main():
             raise SystemExit("CSV vazio.")
 
         cols = reader.fieldnames or []
-        # SQLite safe identifiers
+        # Identificadores seguros do SQLite
         def qident(name: str) -> str:
             return '"' + name.replace('"','""') + '"'
 
@@ -59,7 +59,7 @@ def main():
         if args.mode == "replace":
             cur.execute(f'DROP TABLE IF EXISTS {qident(args.table)}')
 
-        # create table if not exists
+        # cria tabela se não existir
         col_defs = ", ".join([f'{qident(c)} TEXT' for c in cols])
         cur.execute(f'CREATE TABLE IF NOT EXISTS {qident(args.table)} ({col_defs}, "__imported_at" TEXT, "__horas_num" REAL, "__horas_adm_num" REAL)')
 

@@ -8,7 +8,7 @@
     <link rel="icon" href="assets/logo.png" />
     <link rel="stylesheet" href="css/styles.css" />
     <style>
-        /* Specific styles for graphs page */
+        /* Estilos específicos para página de gráficos */
         .charts-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
@@ -40,7 +40,7 @@
             min-height: 250px;
         }
 
-        /* Delivery Dashboard Styles */
+        /* Estilos do Dashboard de Entregas */
         .delivery-dashboard-container {
             display: flex;
             flex-direction: column;
@@ -50,7 +50,7 @@
             padding-right: 8px;
         }
 
-        /* Scrollbar styling */
+        /* Estilização da barra de rolagem */
         .delivery-dashboard-container::-webkit-scrollbar {
             width: 6px;
         }
@@ -233,7 +233,7 @@
             margin-left: 0;
         }
 
-        /* Dashboard Legend */
+        /* Legenda do Dashboard */
         .dashboard-legend {
             display: flex;
             gap: 12px;
@@ -276,7 +276,7 @@
 
 <body>
     <div class="app">
-        <!-- Sidebar (Visual consistency) -->
+        <!-- Barra Lateral (Consistência Visual) -->
         <aside class="sidebar">
             <div class="brand"><img src="assets/logo.png" alt="Logo" /></div>
             <div class="section-title">
@@ -300,18 +300,17 @@
                         <option value="aggregated">Consolidado (Soma Equipe)</option>
                     </select></div>
                 <div class="control"><label>Métrica</label><select id="metricSelect">
+                        <option value="all" selected>Todas as Visões</option>
                         <option value="hours">Horas Totais</option>
                         <option value="hoursProject">Horas Projeto</option>
                         <option value="hoursAdm">Horas ADM</option>
-                        <option value="all">Todas as Visões</option>
                     </select></div>
                 <div class="control"><label>Prazo</label><select id="deadlineSelect">
                         <option value="all">Todos</option>
                         <option value="ontime">No Prazo / A Vencer</option>
                         <option value="overdue">Atrasados</option>
                     </select></div>
-                <div class="btnrow"><button class="btn primary" id="btnApply">Aplicar</button><button class="btn ghost"
-                        id="btnReset">Limpar</button></div>
+                <div class="btnrow"><button class="btn ghost" id="btnReset">Limpar</button></div>
                 <div class="filehint" style="margin-top:20px">Visualização consolidada dos indicadores de
                     performance e volumetria da equipe. </div>
                 <div class="footer-meta" style="margin-top:auto">
@@ -319,7 +318,7 @@
                 </div>
             </div>
         </aside>
-        <!-- Main -->
+        <!-- Principal -->
         <main class="main">
             <div class="topbar">
                 <div class="title-pill">DASHBOARD DE INDICADORES</div>
@@ -327,17 +326,23 @@
                         title="Voltar para o Kanban"><span>Voltar ao Board</span></a></div>
             </div>
             <div class="charts-grid">
-                <!-- Chart 1 -->
+                <!-- Gráfico 4 (Responsável vs Capacidade) -->
+                <div class="chart-card" style="grid-column: 1 / -1;">
+                    <h3>Horas Totais por Responsável vs Capacidade (176h)</h3>
+                    <div class="chart-container" style="min-height: 350px;"><canvas id="chartResponsible"></canvas>
+                    </div>
+                </div>
+                <!-- Gráfico 1 -->
                 <div class="chart-card">
                     <h3>Distribuição por Tipo de Demanda</h3>
                     <div class="chart-container"><canvas id="chartType"></canvas></div>
                 </div>
-                <!-- Chart 2 -->
+                <!-- Gráfico 2 -->
                 <div class="chart-card">
                     <h3>Horas por Status</h3>
                     <div class="chart-container"><canvas id="chartStatus"></canvas></div>
                 </div>
-                <!-- Chart 3 (Delivery Dashboard) -->
+                <!-- Gráfico 3 (Dashboard de Entregas) -->
                 <div class="chart-card" style="grid-column: 1 / -1;">
                     <div
                         style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -348,20 +353,15 @@
                                     class="dot upcoming"></span>Próximos</span></div>
                     </div>
                     <div id="deliveryDashboard" class="delivery-dashboard-container">
-                        <!-- Content will be injected by JS -->
+                        <!-- Conteúdo será injetado por JS -->
                         <div class="empty-state">Carregando entregas...</div>
                     </div>
                 </div>
-                <!-- Chart 4 (Responsible vs Capacity) -->
-                <div class="chart-card" style="grid-column: 1 / -1;">
-                    <h3>Horas Totais por Responsável vs Capacidade (176h)</h3>
-                    <div class="chart-container" style="min-height: 350px;"><canvas id="chartResponsible"></canvas>
-                    </div>
-                </div>
+
             </div>
         </main>
     </div>
-    <!-- Chart.js CDN -->
+    <!-- CDN Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
     <script src="js/api.js"></script>

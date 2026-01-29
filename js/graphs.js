@@ -1,9 +1,9 @@
 /* =========================
-   PPC Task Board - Graphs
-   Interactive Filters & Visualization
+   PPC Task Board - Gráficos
+   Filtros Interativos & Visualização
    ========================= */
 
-// Theme colors from CSS
+// Cores do tema do CSS
 const COLORS = {
     primary: '#0b4f78',
     secondary: '#123e5d',
@@ -33,22 +33,22 @@ const ROLE_MAPPINGS = [
 ];
 
 
-// Global Chart Instances
+// Instâncias Globais de Gráficos
 let chartTypeInstance = null;
 let chartStatusInstance = null;
-// chartTimelineInstance REMOVED
+// chartTimelineInstance REMOVIDO
 let chartResponsibleInstance = null;
-let APP_DATA = []; // Will hold the loaded data
+let APP_DATA = []; // Manterá os dados carregados
 const LOCAL_STORAGE_KEY = "ppc_task_board_data_v1";
 
-// Hardcoded "Today" for consistency (or use real today?)
+// "Hoje" fixo para consistência (ou usar data real?)
 const TODAY = new Date();
 
 document.addEventListener("DOMContentLoaded", () => {
     init();
 });
 
-// Register plugin if available
+// Registrar plugin se disponível
 if (typeof ChartDataLabels !== 'undefined') {
     Chart.register(ChartDataLabels);
 }
@@ -56,30 +56,31 @@ if (typeof ChartDataLabels !== 'undefined') {
 async function init() {
     await loadData();
     populateFilters();
-    // Initialize with default metric 'hours' (Total)
-    initCharts(APP_DATA, 'hours');
+    // Inicializar com métrica padrão 'all' (Todas as Visões)
+    document.getElementById('metricSelect').value = 'all';
+    initCharts(APP_DATA, 'all');
     setupEventListeners();
 }
 
 async function loadData() {
-    // 1. Try LocalStorage FIRST (To ensure sync with what user sees on Board)
+    // 1. Tenta LocalStorage PRIMEIRO (Para garantir sincronia com o que o usuário vê no Board)
     try {
         const rawLocal = localStorage.getItem(LOCAL_STORAGE_KEY);
         if (rawLocal) {
             const parsed = JSON.parse(rawLocal);
             const localTasks = parsed.tasks || [];
             if (Array.isArray(localTasks) && localTasks.length > 0) {
-                console.log("Loaded data from LocalStorage (Sync with Board)");
+                console.log("Dados carregados do LocalStorage (Sincronizado com Board)");
                 APP_DATA = processTasks(localTasks);
-                return; // Use local data and skip API
+                return; // Usa dados locais e pula API
             }
         }
     } catch (err) {
-        console.warn("Error loading from LocalStorage", err);
+        console.warn("Erro ao carregar do LocalStorage", err);
     }
 
-    // 2. Fallback to API if LocalStorage is empty/missing
-    console.log("LocalStorage empty, trying API...");
+    // 2. Fallback para API se LocalStorage estiver vazio/ausente
+    console.log("LocalStorage vazio, tentando API...");
     try {
         const tasks = await api.getTasks();
         if (tasks && Array.isArray(tasks)) {
@@ -87,22 +88,22 @@ async function loadData() {
             return;
         }
     } catch (e) {
-        console.error("Error loading data from API", e);
+        console.error("Erro ao carregar dados da API", e);
     }
 
-    // 3. Last resort: empty
+    // 3. Último recurso: vazio
     APP_DATA = [];
 }
 
 /**
- * Shared processing logic for API and Local data
+ * Lógica de processamento compartilhada para dados da API e Local
  */
 function processTasks(tasks) {
     return tasks.map(t => {
-        // Determine raw object (API might return raw directly or wrapped)
+        // Determinar objeto raw (API pode retornar raw diretamente ou envelopado)
         const raw = t.raw || t;
 
-        // Extract assignments
+        // Extrair atribuições
         const assignments = [];
         ROLE_MAPPINGS.forEach(map => {
             const name = (raw[map.nameKey] || "").trim();
@@ -112,7 +113,7 @@ function processTasks(tasks) {
                 if (map.hoursKey) hProj = parseFloat(raw[map.hoursKey] || 0);
                 if (map.admKey) hAdm = parseFloat(raw[map.admKey] || 0);
 
-                // fallback safety
+                // segurança de fallback
                 if (isNaN(hProj)) hProj = 0;
                 if (isNaN(hAdm)) hAdm = 0;
 
@@ -126,21 +127,22 @@ function processTasks(tasks) {
             }
         });
 
-        // Helper to parse dates simply
+        // Helper para analisar datas de forma simples
         const dateStart = parseDate(raw["Data Início (Previsão)"]);
         const dateEnd = parseDate(raw["Data Conclusão (Previsão)"]);
 
-        // Map structure
+        // Estrutura do mapa
         return {
             client: raw["Nome Cliente"] || t.title || "Sem Cliente",
-            title: t.title || raw["Detalhe da demanda (Escopo)"] || "Demanda", // Ensure title exists
+            title: t.title || raw["Detalhe da demanda (Escopo)"] || "Demanda", // Garantir que título exista
             owner: t.responsible || raw["Responsável Demanda"] || "Sem Responsável",
             assignments: assignments,
             type: t.demandType || raw["Tipo de Demanda"] || "OUTROS",
             status: t.status || raw["Status"] || "Backlog",
-            hours: parseFloat(raw["Horas"] || t.hoursTotal || 0),
+            hoursProject: parseFloat(raw["Horas"] || t.hoursProject || 0),
             hoursAdm: parseFloat(raw["Horas ADM"] || t.hoursAdm || 0),
-            date: dateEnd, // Keep generic date as End Date for legacy logic
+            get hours() { return this.hoursProject + this.hoursAdm; }, // Total calculado dinamicamente
+            date: dateEnd, // Manter data genérica como Data Fim para lógica legada
             dateStart: dateStart,
             dateEnd: dateEnd,
             raw: raw
@@ -149,13 +151,13 @@ function processTasks(tasks) {
 }
 
 function parseDate(dateStr) {
-    if (!dateStr) return null; // Return null if empty
+    if (!dateStr) return null; // Retorna null se vazio
 
-    // Try standard Date parse (works for ISO and M/D/Y)
+    // Tenta parse padrão de Date (funciona para ISO e M/D/Y)
     let d = new Date(dateStr);
     if (!isNaN(d.getTime())) return d;
 
-    // Try Brazilian format DD/MM/YYYY
+    // Tenta formato brasileiro DD/MM/YYYY
     const parts = dateStr.split('/');
     if (parts.length === 3) {
         // Assume D/M/Y
@@ -163,11 +165,11 @@ function parseDate(dateStr) {
         if (!isNaN(d.getTime())) return d;
     }
 
-    return null; // Return null if invalid
+    return null; // Retorna null se inválido
 }
 
 /**
- * Populate 'Select' options based on APP_DATA
+ * Preenche opções do 'Select' baseado em APP_DATA
  */
 function populateFilters() {
     const clientSet = new Set();
@@ -183,7 +185,7 @@ function populateFilters() {
     });
 
     const clientSelect = document.getElementById('clientSelect');
-    // sort alphabetically
+    // ordenar alfabeticamente
     const sortedClients = [...clientSet].sort();
     sortedClients.forEach(c => {
         const opt = document.createElement('option');
@@ -203,7 +205,15 @@ function populateFilters() {
 }
 
 function setupEventListeners() {
-    document.getElementById('btnApply').addEventListener('click', applyFilters);
+    // Filtros automáticos (change)
+    const filterIds = [
+        'periodSelect', 'clientSelect', 'respSelect',
+        'respViewSelect', 'metricSelect', 'deadlineSelect'
+    ];
+    filterIds.forEach(id => {
+        document.getElementById(id).addEventListener('change', applyFilters);
+    });
+
     document.getElementById('btnReset').addEventListener('click', resetFilters);
 }
 
@@ -211,7 +221,7 @@ function resetFilters() {
     document.getElementById('periodSelect').value = "30";
     document.getElementById('clientSelect').value = "";
     document.getElementById('respSelect').value = "";
-    document.getElementById('metricSelect').value = "hours";
+    document.getElementById('metricSelect').value = "all";
     document.getElementById('deadlineSelect').value = "all";
     document.getElementById('respViewSelect').value = "individual";
     applyFilters();
@@ -226,19 +236,19 @@ function applyFilters() {
     const viewMode = document.getElementById('respViewSelect').value; // individual, aggregated
 
     let filtered = APP_DATA.filter(item => {
-        // Client Filter
+        // Filtro de Cliente
         if (client && item.client !== client) return false;
-        // Owner Filter
-        // Owner Filter (Multi-role)
+        // Filtro de Responsável
+        // Filtro de Responsável (Multi-função)
         if (owner) {
             const p = owner.toLowerCase();
-            // Check if ANY assignment matches
+            // Verifica se QUALQUER atribuição corresponde
             const match = item.assignments.some(a => a.person.toLowerCase().includes(p));
             if (!match) return false;
         }
 
-        // Date Logic for Period
-        const itemDate = item.date || new Date(); // Fallback for sort
+        // Lógica de Data para Período
+        const itemDate = item.date || new Date(); // Fallback para ordenação
 
         if (period === '30') {
             const diffTime = Math.abs(TODAY - itemDate);
@@ -265,11 +275,11 @@ function applyFilters() {
         return true;
     });
 
-    updateCharts(filtered, metric, viewMode);
+    updateCharts(filtered, metric, viewMode, owner);
 }
 
 function initCharts(data, metric) {
-    // 1. Demand Type
+    // 1. Tipo de Demanda
     const typeData = processTypeData(data, metric);
     const ctxType = document.getElementById('chartType').getContext('2d');
     chartTypeInstance = new Chart(ctxType, {
@@ -303,18 +313,23 @@ function initCharts(data, metric) {
                         let sum = 0;
                         let dataArr = ctx.chart.data.datasets[0].data;
                         dataArr.map(data => { sum += data; });
-                        let percentage = (value * 100 / sum).toFixed(1) + "%";
-                        if ((value * 100 / sum) < 3) return "";
-                        return percentage;
+                        if (sum === 0) return "";
+                        let percentage = (value * 100 / sum);
+                        // Relaxei regra: mostra se > 0.5%
+                        if (percentage < 0.5) return "";
+                        return percentage.toFixed(0) + "%";
                     },
-                    display: true
+                    display: true, // Forçar exibição (auto estava ocultando demais)
+                    backgroundColor: 'rgba(0,0,0,0.5)',
+                    borderRadius: 4,
+                    padding: 4
                 }
             }
         },
         plugins: [ChartDataLabels]
     });
 
-    // Common DataLabels Defaults
+    // Padrões Comuns de DataLabels
     const commonDataLabels = {
         color: '#333',
         font: { weight: 'bold', size: 13, family: 'ui-sans-serif, system-ui' },
@@ -353,90 +368,26 @@ function initCharts(data, metric) {
                     align: 'top',
                     offset: -4,
                     color: '#0b4f78',
-                    font: { weight: '900', size: 14 }
+                    font: { weight: 'bold', size: 12 },
+                    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+                    borderRadius: 4,
+                    padding: { top: 2, bottom: 2, left: 6, right: 6 }
                 }
-            }
+            },
+            layout: { padding: { top: 25 } }
         },
         plugins: [ChartDataLabels]
     });
 
-    // 3. Delivery Dashboard Initial Render
+    // 3. Renderização Inicial do Dashboard de Entregas
     renderDeliveryDashboard(data);
 
-    // 4. Responsible vs Capacity
-    const respData = processResponsibleData(data, metric);
-    const ctxResp = document.getElementById('chartResponsible').getContext('2d');
-    chartResponsibleInstance = new Chart(ctxResp, {
-        type: 'bar',
-        data: {
-            labels: respData.labels,
-            datasets: buildResponsibleDatasets(respData)
-        },
-        options: {
-            indexAxis: 'x',
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
-                x: { stacked: true, grid: { display: false } }
-            },
-            plugins: {
-                legend: { position: 'top' },
-                tooltip: {
-                    mode: 'index',
-                    intersect: false,
-                    callbacks: {
-                        label: function (context) {
-                            let label = context.dataset.label || '';
-                            if (label) {
-                                label += ': ';
-                            }
-                            if (context.parsed.y !== null) {
-                                label += Math.round(context.parsed.y) + 'h';
-                            } else if (context.parsed.x !== null) {
-                                label += Math.round(context.parsed.x) + 'h';
-                            }
-
-                            // Remaining Hours Logic
-                            if (context.dataset.label !== 'Capacidade (176h/pessoa)') {
-                                const val = context.parsed.y !== null ? context.parsed.y : context.parsed.x;
-                                const capacity = 176;
-                                const remaining = capacity - val;
-
-                                if (remaining >= 0) {
-                                    label += ` | Restantes: ${Math.round(remaining)}h`;
-                                } else {
-                                    label += ` | Excedentes: ${Math.round(Math.abs(remaining))}h`;
-                                }
-                            }
-                            return label;
-                        }
-                    }
-                },
-                datalabels: {
-                    color: '#fff',
-                    font: { weight: "bold", size: 12 },
-                    textStrokeColor: 'rgba(0,0,0,0.5)',
-                    textStrokeWidth: 2,
-                    formatter: (value, ctx) => {
-                        if (Math.abs(value) < 1) return "";
-                        return Math.round(value);
-                    },
-                    display: (ctx) => {
-                        const v = ctx.dataset.data[ctx.dataIndex];
-                        return Math.abs(v) > 2;
-                    },
-                    anchor: 'center',
-                    align: 'center'
-                }
-            }
-        },
-        plugins: [ChartDataLabels]
-    });
+    // 4. Responsável vs Capacidade (Delegado para updateCharts para consistência)
+    updateCharts(data, metric, 'individual', null);
 }
 
-function updateCharts(data, metric, viewMode = 'individual') {
-    // 1. Type
+function updateCharts(data, metric, viewMode = 'individual', filterOwner = null) {
+    // 1. Tipo
     const typeMetric = (metric === 'all') ? 'hours' : metric;
     const typeData = processTypeData(data, typeMetric);
     chartTypeInstance.data.labels = Object.keys(typeData);
@@ -468,104 +419,218 @@ function updateCharts(data, metric, viewMode = 'individual') {
     }
     chartStatusInstance.update();
 
-    // 3. Update Delivery Dashboard
+    // 3. Atualizar Dashboard de Entregas
     renderDeliveryDashboard(data);
 
-    // 4. Responsible vs Capacity
+    // 4. Responsável vs Capacidade
     const respMetric = (metric === 'all') ? 'hours' : metric;
     if (chartResponsibleInstance) chartResponsibleInstance.destroy();
     const ctxResp = document.getElementById('chartResponsible').getContext('2d');
 
-    const config = {
+    // === Lógica de Exibição Baseada em ViewMode ===
+    // viewMode controla a agregação:
+    // - 'individual': Mostra cada pessoa como uma barra separada (X = Pessoas)
+    // - 'aggregated': Mostra consolidação temporal de todas as pessoas (X = Tempo)
+
+    const CAPACITY = 176;
+    let config;
+
+    let labels = [];
+    let dataWorked = [];
+    let dataRemaining = [];
+    let dataOvertime = [];
+
+    if (viewMode === 'individual') {
+        // --- VISÃO INDIVIDUAL (Cada Pessoa = Uma Barra) ---
+        // X-axis: Pessoas, Y-axis: Horas (stacked: Worked/Remaining/Overtime)
+        const aggData = processResponsibleAggregatedData(data, respMetric, filterOwner);
+        labels = aggData.labels;
+
+        labels.forEach((p, i) => {
+            const val = aggData.datasets[0].data[i] || 0;
+            const worked = Math.min(val, CAPACITY);
+            const remaining = Math.max(0, CAPACITY - val);
+            const overtime = Math.max(0, val - CAPACITY);
+
+            dataWorked.push(worked);
+            dataRemaining.push(remaining);
+            dataOvertime.push(overtime);
+        });
+    } else {
+        // --- VISÃO CONSOLIDADA (Temporal - Soma de Todas as Pessoas) ---
+        // X-axis: Meses, Y-axis: Soma de todas as pessoas (stacked)
+        const respData = processResponsibleData(data, respMetric, filterOwner);
+        labels = respData.labels;
+
+        // Agregar todas as pessoas por mês
+        respData.monthKeys.forEach(m => {
+            let monthTotal = 0;
+            // Somar todas as pessoas neste mês
+            respData.persons.forEach(p => {
+                const key = `${m}| ${p} `;
+                monthTotal += (respData.values[key] || 0);
+            });
+
+            // Calcular capacidade total para este mês (176h × número de pessoas)
+            const peopleCount = respData.persons.length;
+            const monthCapacity = CAPACITY * peopleCount;
+
+            const worked = Math.min(monthTotal, monthCapacity);
+            const remaining = Math.max(0, monthCapacity - monthTotal);
+            const overtime = Math.max(0, monthTotal - monthCapacity);
+
+            dataWorked.push(worked);
+            dataRemaining.push(remaining);
+            dataOvertime.push(overtime);
+        });
+    }
+
+    config = {
         type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Horas Excedentes',
+                    data: dataOvertime,
+                    backgroundColor: '#ef4444', // Red 500
+                    borderRadius: { topLeft: 8, topRight: 8 }, // Arredondar topo se existir
+                    stack: 'Stack 0',
+                    order: 1,
+                    barPercentage: 0.5, // Barras mais finas
+                    categoryPercentage: 0.7
+                },
+                {
+                    label: 'Horas Restantes',
+                    data: dataRemaining,
+                    backgroundColor: '#e2e8f0', // Slate 200 (Cinza claro)
+                    borderRadius: { topLeft: 8, topRight: 8 }, // Arredondar topo do "container" 
+                    stack: 'Stack 0',
+                    order: 2,
+                    datalabels: { display: false }, // Não mostrar zero ou valor do cinza
+                    barPercentage: 0.5,
+                    categoryPercentage: 0.7
+                },
+                {
+                    label: 'Horas Trabalhadas',
+                    data: dataWorked,
+                    backgroundColor: '#0ea5e9', // Sky 500
+                    borderRadius: { bottomLeft: 8, bottomRight: 8 }, // Arredondar base
+                    stack: 'Stack 0',
+                    order: 3,
+                    barPercentage: 0.5,
+                    categoryPercentage: 0.7
+                }
+            ]
+        },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                y: { stacked: true, grid: { display: false } }, // Swapped for indexAxis check below
-                x: { stacked: true, grid: { display: false } }
+                y: {
+                    beginAtZero: true,
+                    stacked: true,
+                    grid: {
+                        color: 'rgba(0,0,0,0.03)',
+                        drawBorder: false
+                    },
+                    suggestedMax: 180, // Dar um respiro acima de 176
+                    ticks: {
+                        font: { size: 11 },
+                        color: '#64748b'
+                    }
+                },
+                x: {
+                    stacked: true,
+                    grid: { display: false },
+                    ticks: {
+                        autoSkip: false,
+                        maxRotation: 45,
+                        minRotation: 0,
+                        font: { size: 11 },
+                        color: '#475569'
+                    }
+                }
             },
             plugins: {
-                legend: { position: 'top' },
+                legend: {
+                    position: 'top',
+                    labels: { usePointStyle: true, boxWidth: 8 },
+                    // Filtrar 'Horas Restantes' da legenda se quiser limpar, mas ajuda a entender a parte cinza
+                },
                 tooltip: {
                     mode: 'index',
                     intersect: false,
                     callbacks: {
                         label: function (context) {
-                            let label = context.dataset.label || '';
-                            if (label) {
-                                label += ': ';
-                            }
-                            if (context.parsed.y !== null) {
-                                label += Math.round(context.parsed.y) + 'h';
-                            } else if (context.parsed.x !== null) {
-                                label += Math.round(context.parsed.x) + 'h';
-                            }
+                            const label = context.dataset.label;
+                            const val = context.parsed.y;
+                            if (val === 0 && label !== 'Horas Restantes') return null; // Esconder 0 exceto se for util
+                            if (label === 'Horas Restantes' && val === 0) return "Capacidade Esgotada";
+                            return `${label}: ${Math.round(val)}h`;
+                        },
+                        footer: function (tooltipItems) {
+                            // Calcular Total Real
+                            let total = 0;
+                            // Temos worked, remaining, overtime. 
+                            // O Total Real Trabalhado é Worked + Overtime.
+                            // Os datasets estão em ordem inversa no tooltipItems as vezes?
+                            // Vamos buscar do raw logic ou somar componentes.
 
-                            // Add Remaining Hours Logic
-                            // Only for actual data datasets, not the capacity line itself (though user might want to see context there too)
-                            // Assuming capacity is fixed 176h for this calculation as requested.
-                            if (context.dataset.label !== 'Capacidade (176h/pessoa)') {
-                                const val = context.parsed.y !== null ? context.parsed.y : context.parsed.x;
-                                const capacity = 176;
-                                const remaining = capacity - val;
+                            // A soma da stack visual (Y) é sem significado direto pois tem remaining.
+                            // Mas DataIndex é constante.
+                            const idx = tooltipItems[0].dataIndex;
+                            const worked = dataWorked[idx];
+                            const overtime = dataOvertime[idx];
+                            const realTotal = worked + overtime;
 
-                                if (remaining >= 0) {
-                                    label += ` | Restantes: ${Math.round(remaining)}h`;
-                                } else {
-                                    label += ` | Excedentes: ${Math.round(Math.abs(remaining))}h`;
-                                }
-                            }
-
-                            return label;
+                            return `Total Realizado: ${Math.round(realTotal)}h`;
                         }
                     }
                 },
                 datalabels: {
-                    color: '#fff',
-                    font: { weight: "bold", size: 10 },
-                    formatter: (value) => Math.abs(value) < 1 ? "" : Math.round(value),
-                    display: (ctx) => Math.abs(ctx.dataset.data[ctx.dataIndex]) > 2,
-                    anchor: 'center', align: 'center'
+                    color: '#fff', // Texto branco
+                    font: { weight: 'bold', size: 11 },
+                    formatter: (value, ctx) => {
+                        // Só mostrar valor se for 'Horas Trabalhadas' ou 'Excedentes' e for relevante
+                        if (value < 5) return "";
+                        return Math.round(value);
+                    },
+                    display: (ctx) => {
+                        // Não mostrar label no cinza (Restantes)
+                        if (ctx.dataset.label === 'Horas Restantes') return false;
+                        return true;
+                    }
                 }
             }
         },
         plugins: [ChartDataLabels]
     };
 
-    if (viewMode === 'aggregated') {
-        const aggData = processResponsibleAggregatedData(data, respMetric);
-        config.data = { labels: aggData.labels, datasets: buildResponsibleAggregatedDatasets(aggData) };
-        config.options.indexAxis = 'y'; // Horizontal
-        config.options.scales.x.beginAtZero = true; // x is value axis
-        config.options.scales.x.grid.color = 'rgba(0,0,0,0.05)';
-    } else {
-        const newRespData = processResponsibleData(data, respMetric);
-        config.data = { labels: newRespData.labels, datasets: buildResponsibleDatasets(newRespData) };
-        config.options.indexAxis = 'x'; // Vertical
-        config.options.scales.y.beginAtZero = true; // y is value axis
-        config.options.scales.y.grid.color = 'rgba(0,0,0,0.05)';
-    }
-
     chartResponsibleInstance = new Chart(ctxResp, config);
 }
 
+// Helper auxiliar para manter o código limpo (funções antigas mantidas mas não usadas no novo fluxo)
+function unused_processResponsibleData_legacy() {
+    // Essa função foi substituída pela lógica inline ou processResponsibleData aprimorado
+}
+
 /* =========================================
-   DELIVERY DASHBOARD LOGIC
+   LÓGICA DO DASHBOARD DE ENTREGAS
    ========================================= */
 function renderDeliveryDashboard(data) {
     const container = document.getElementById('deliveryDashboard');
     if (!container) return;
     container.innerHTML = "";
 
-    // 1. Separate into Overdue, Today, Upcoming
-    // Ignore Completed/Cancelled items? Usually Dashboard focuses on pending. 
-    // The user said "prazos que temos proximos e vencidos" - implies pending.
-    // However, the "Prazo" filter on the left (deadlineSelect) already controls this somewhat.
-    // Let's Respect the passed 'data' array which is already filtered by sidebar.
-    // BUT, commonly "Done" items shouldn't be in "Proximos" list even if they match filter.
-    // Let's filter out 'Concluída'/'Cancelada' unless user explicitly wants history?
-    // User asked: "Entregas... Prazos proximos e vencidos". Likely Pending.
+    // 1. Separar em Vencidos, Hoje, Próximos
+    // Ignorar itens Concluídos/Cancelados? Geralmente Dashboard foca em pendentes.
+    // O usuário disse "prazos que temos proximos e vencidos" - implica pendentes.
+    // No entanto, o filtro "Prazo" à esquerda (deadlineSelect) já controla isso de certa forma.
+    // Vamos respeitar o array 'data' passado, que já está filtrado pela barra lateral.
+    // MAS, comumente itens "Done" não devem estar na lista "Próximos" mesmo se coincidirem com filtro.
+    // Vamos filtrar 'Concluída'/'Cancelada' a menos que usuário explicitamente queira histórico?
+    // Usuário pediu: "Entregas... Prazos proximos e vencidos". Provavelmente Pendentes.
 
     const activeData = data.filter(d => d.status !== 'Concluída' && d.status !== 'Cancelada');
 
@@ -573,7 +638,7 @@ function renderDeliveryDashboard(data) {
     const today = [];
     const upcoming = [];
 
-    // Sort by Date End
+    // Ordenar por Data Fim
     activeData.sort((a, b) => {
         const da = a.dateEnd || new Date(9999, 0, 1);
         const db = b.dateEnd || new Date(9999, 0, 1);
@@ -581,13 +646,13 @@ function renderDeliveryDashboard(data) {
     });
 
     const now = new Date();
-    // Reset time for comparison
+    // Resetar tempo para comparação
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
     activeData.forEach(item => {
         if (!item.dateEnd) {
-            upcoming.push(item); // No date = assumes future/backlog
+            upcoming.push(item); // Sem data = assume futuro/backlog
             return;
         }
 
@@ -602,7 +667,7 @@ function renderDeliveryDashboard(data) {
         }
     });
 
-    // Render Function
+    // Função de Renderização
     const createSection = (title, items, type) => {
         if (items.length === 0) return;
 
@@ -618,11 +683,11 @@ function renderDeliveryDashboard(data) {
             const card = document.createElement('div');
             card.className = `delivery-item ${type}`;
 
-            // Format Dates
+            // Formatar Datas
             const startStr = item.dateStart ? item.dateStart.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '—';
             const endStr = item.dateEnd ? item.dateEnd.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '—';
 
-            // Avatar Initials
+            // Iniciais do Avatar
             const avatarsHtml = item.assignments.length > 0
                 ? item.assignments.slice(0, 3).map(a => `<div class="mini-avatar" title="${a.person} (${a.role})">${initials(a.person)}</div>`).join('')
                 : `<div class="mini-avatar" title="${item.owner}">${initials(item.owner)}</div>`;
@@ -630,7 +695,7 @@ function renderDeliveryDashboard(data) {
             card.innerHTML = `
                 <div class="status-line"></div>
                 <div class="delivery-content">
-                    <!-- Swapped: Title is now Client, Meta is now Detail/Scope -->
+                    <!-- Trocado: Título agora é Cliente, Meta agora é Detalhe/Escopo -->
                     <div class="delivery-title" title="${item.client || 'Sem Cliente'}">
                         ${item.client || 'Cliente não identificado'}
                     </div>
@@ -679,15 +744,9 @@ function initials(name) {
     return (a + String(b).toUpperCase()).slice(0, 2);
 }
 
-// Helpers
+// Ajudantes
 function getMetricValue(item, metric) {
-    const val = parseFloat(item[metric] || 0);
-    if (metric === 'hoursProject') {
-        const total = parseFloat(item.hours || 0);
-        const adm = parseFloat(item.hoursAdm || 0);
-        return Math.max(0, total - adm);
-    }
-    return val;
+    return parseFloat(item[metric] || 0);
 }
 
 function getMetricLabel(metric) {
@@ -716,7 +775,7 @@ function processStatusData(data, metric) {
     return res;
 }
 
-function processResponsibleData(data, metric) {
+function processResponsibleData(data, metric, filterOwner = null) {
     const monthMap = new Map();
     const personSet = new Set();
     const values = {};
@@ -734,6 +793,7 @@ function processResponsibleData(data, metric) {
 
         d.assignments.forEach(assign => {
             if (!assign.person) return;
+            if (filterOwner && assign.person !== filterOwner) return;
 
             const person = assign.person;
             personSet.add(person);
@@ -759,6 +819,7 @@ function processResponsibleData(data, metric) {
 
         // Fallback
         if (d.assignments.length === 0 && d.owner) {
+            if (filterOwner && d.owner !== filterOwner) return;
             const person = d.owner;
             personSet.add(person);
             const val = getMetricValue(d, metric);
@@ -796,11 +857,11 @@ function buildResponsibleDatasets(data) {
             label: p,
             data: data.monthKeys.map(m => data.values[`${m}| ${p} `] || 0),
             backgroundColor: color,
-            stack: 'Stack 0',
+            // stack: 'Stack 0', // Removido para permitir agrupamento lado a lado
         };
     });
 
-    // Capacity Line
+    // Linha de Capacidade
     datasets.push({
         label: 'Capacidade (176h/pessoa)',
         data: data.monthKeys.map(m => data.monthlyCapacity[m] || 0),
@@ -815,13 +876,14 @@ function buildResponsibleDatasets(data) {
     return datasets;
 }
 
-function processResponsibleAggregatedData(data, metric) {
-    // Similar to above but aggregation by Person (X) and Monthly (Stack)? OR Person (Y) and Month (Stack)...
-    // The previous implementation (not fully shown in read) wasn't fully visible but I can infer.
-    // Let's implement a simple Total by Responsible.
+function processResponsibleAggregatedData(data, metric, filterOwner = null) {
+    // Similar ao acima, mas agregação por Pessoa (X) e Mensal (Pilha)? OU Pessoa (Y) e Mês (Pilha)...
+    // A implementação anterior não estava totalmente visível, mas posso inferir.
+    // Vamos implementar um Total simples por Responsável.
     const persons = {};
     data.forEach(d => {
         d.assignments.forEach(a => {
+            if (filterOwner && a.person !== filterOwner) return;
             let val = 0;
             if (metric === 'hours') val = a.hoursTotal;
             else if (metric === 'hoursAdm') val = a.hoursAdm;
@@ -830,6 +892,7 @@ function processResponsibleAggregatedData(data, metric) {
             persons[a.person] = (persons[a.person] || 0) + val;
         });
         if (d.assignments.length === 0 && d.owner) {
+            if (filterOwner && d.owner !== filterOwner) return;
             const val = getMetricValue(d, metric);
             persons[d.owner] = (persons[d.owner] || 0) + val;
         }
@@ -852,7 +915,7 @@ function buildResponsibleAggregatedDatasets(aggData) {
     return aggData.datasets;
 }
 
-// Simple hash for consistent colors
+// Hash simples para cores consistentes
 function stringToColor(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
