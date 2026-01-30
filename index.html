@@ -45,9 +45,21 @@
         <div class="separator"></div>
 
         <div class="btnrow">
-          <input type="file" id="csvFile" accept=".csv" class="hidden" />
-          <button class="btn primary" id="btnLoadCsv" title="Carregar dados locais (não envia ao servidor)">📂 Carregar
-            CSV</button>
+          <input type="file" id="csvFile1" accept=".csv" class="hidden" />
+          <button class="btn primary" id="btnLoadCsv1" title="Carregar CSV principal com coluna ID">📂 Carregar CSV
+            Principal</button>
+        </div>
+
+        <div class="btnrow">
+          <input type="file" id="csvFile2" accept=".csv" class="hidden" />
+          <button class="btn primary" id="btnLoadCsv2" title="Carregar CSV complementar com coluna DemandaId">📂
+            Carregar CSV Complementar</button>
+        </div>
+
+        <div class="btnrow">
+          <div id="csvStatus" class="filehint" style="font-size: 0.85rem; margin-top: 4px;">
+            CSV Principal: ❌ | CSV Complementar: ❌
+          </div>
         </div>
 
         <div class="btnrow">

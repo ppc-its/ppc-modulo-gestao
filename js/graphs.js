@@ -72,6 +72,13 @@ async function loadData() {
             if (Array.isArray(localTasks) && localTasks.length > 0) {
                 console.log("Dados carregados do LocalStorage (Sincronizado com Board)");
                 APP_DATA = processTasks(localTasks);
+
+                // Log de uso do CSV2
+                const csv2Count = APP_DATA.filter(t => t.hasCSV2Data).length;
+                if (csv2Count > 0) {
+                    console.log(`[Graphs] ${csv2Count}/${APP_DATA.length} tarefas usando dados do CSV2`);
+                }
+
                 return; // Usa dados locais e pula API
             }
         }
@@ -98,56 +105,107 @@ async function loadData() {
 /**
  * Lógica de processamento compartilhada para dados da API e Local
  */
+/**
+ * Lógica de processamento compartilhada para dados da API e Local
+ */
 function processTasks(tasks) {
-    return tasks.map(t => {
+    const processed = tasks.map(t => {
         // Determinar objeto raw (API pode retornar raw diretamente ou envelopado)
         const raw = t.raw || t;
 
+        // Verificar se temos dados do CSV2
+        const csv2Details = raw["_csv2Details"];
+
         // Extrair atribuições
         const assignments = [];
-        ROLE_MAPPINGS.forEach(map => {
-            const name = (raw[map.nameKey] || "").trim();
-            if (name) {
-                let hProj = 0;
-                let hAdm = 0;
-                if (map.hoursKey) hProj = parseFloat(raw[map.hoursKey] || 0);
-                if (map.admKey) hAdm = parseFloat(raw[map.admKey] || 0);
 
-                // segurança de fallback
-                if (isNaN(hProj)) hProj = 0;
-                if (isNaN(hAdm)) hAdm = 0;
-
+        if (csv2Details && csv2Details.colaboradores && csv2Details.colaboradores.length > 0) {
+            // USAR DADOS DO CSV2 (prioritário)
+            csv2Details.colaboradores.forEach(colab => {
                 assignments.push({
-                    role: map.role,
-                    person: name,
-                    hoursProject: hProj,
-                    hoursAdm: hAdm,
-                    hoursTotal: hProj + hAdm
+                    role: colab.responsabilidades,
+                    person: colab.colaborador,
+                    hoursProject: colab.horasProjeto || 0,
+                    hoursAdm: colab.horasAdm || 0,
+                    hoursTotal: colab.horasTotal || 0
                 });
-            }
-        });
+            });
+        } else {
+            // FALLBACK: Usar dados do CSV1 (legado)
+            ROLE_MAPPINGS.forEach(map => {
+                const name = (raw[map.nameKey] || "").trim();
+                if (name) {
+                    let hProj = 0;
+                    let hAdm = 0;
+                    if (map.hoursKey) hProj = parseFloat(raw[map.hoursKey] || 0);
+                    if (map.admKey) hAdm = parseFloat(raw[map.admKey] || 0);
+
+                    // segurança de fallback
+                    if (isNaN(hProj)) hProj = 0;
+                    if (isNaN(hAdm)) hAdm = 0;
+
+                    assignments.push({
+                        role: map.role,
+                        person: name,
+                        hoursProject: hProj,
+                        hoursAdm: hAdm,
+                        hoursTotal: hProj + hAdm
+                    });
+                }
+            });
+        }
 
         // Helper para analisar datas de forma simples
         const dateStart = parseDate(raw["Data Início (Previsão)"]);
         const dateEnd = parseDate(raw["Data Conclusão (Previsão)"]);
 
+        // Usar datas do CSV2 se disponíveis
+        const csv2DateStart = csv2Details?.dataInicio ? parseDate(csv2Details.dataInicio) : null;
+        const csv2DateEnd = csv2Details?.dataFim ? parseDate(csv2Details.dataFim) : null;
+
+        // Usar horas do CSV2 se disponíveis, senão fallback para CSV1
+        let hoursProject, hoursAdm;
+        if (csv2Details) {
+            hoursProject = csv2Details.horasProjetoTotal || 0;
+            hoursAdm = csv2Details.horasAdmTotal || 0;
+        } else {
+            hoursProject = parseFloat(raw["Horas"] || t.hoursProject || 0);
+            hoursAdm = parseFloat(raw["Horas ADM"] || t.hoursAdm || 0);
+        }
+
         // Estrutura do mapa
         return {
+            id: t.id || raw["ID"] || raw["id"],
             client: raw["Nome Cliente"] || t.title || "Sem Cliente",
             title: t.title || raw["Detalhe da demanda (Escopo)"] || "Demanda", // Garantir que título exista
             owner: t.responsible || raw["Responsável Demanda"] || "Sem Responsável",
             assignments: assignments,
             type: t.demandType || raw["Tipo de Demanda"] || "OUTROS",
             status: t.status || raw["Status"] || "Backlog",
-            hoursProject: parseFloat(raw["Horas"] || t.hoursProject || 0),
-            hoursAdm: parseFloat(raw["Horas ADM"] || t.hoursAdm || 0),
-            get hours() { return this.hoursProject + this.hoursAdm; }, // Total calculado dinamicamente
-            date: dateEnd, // Manter data genérica como Data Fim para lógica legada
-            dateStart: dateStart,
-            dateEnd: dateEnd,
-            raw: raw
+            hoursProject: hoursProject,
+            hoursAdm: hoursAdm,
+            get hours() { return (this.hoursProject || 0) + (this.hoursAdm || 0); }, // Total calculado dinamicamente
+            date: csv2DateEnd || dateEnd, // Priorizar data do CSV2
+            dateStart: csv2DateStart || dateStart,
+            dateEnd: csv2DateEnd || dateEnd,
+            raw: raw,
+            hasCSV2Data: !!csv2Details // Flag para debug
         };
     });
+
+    // Logging de Verificação de Volumetria
+    console.log(`[Graphs] Processamento concluído: ${processed.length} tarefas.`);
+    if (processed.length > 0) {
+        let totalH = 0, totalP = 0, totalA = 0;
+        processed.forEach(p => {
+            totalH += p.hours;
+            totalP += p.hoursProject;
+            totalA += p.hoursAdm;
+        });
+        console.log(`[Graphs] Volumetria Total: ${totalH.toFixed(1)}h (Projeto: ${totalP.toFixed(1)}h, ADM: ${totalA.toFixed(1)}h)`);
+    }
+
+    return processed;
 }
 
 function parseDate(dateStr) {
@@ -493,33 +551,22 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
                 {
                     label: 'Horas Excedentes',
                     data: dataOvertime,
-                    backgroundColor: '#ef4444', // Red 500
-                    borderRadius: { topLeft: 8, topRight: 8 }, // Arredondar topo se existir
+                    backgroundColor: '#FF6B6B', // Coral vibrante
+                    borderRadius: 6,
                     stack: 'Stack 0',
                     order: 1,
-                    barPercentage: 0.5, // Barras mais finas
-                    categoryPercentage: 0.7
-                },
-                {
-                    label: 'Horas Restantes',
-                    data: dataRemaining,
-                    backgroundColor: '#e2e8f0', // Slate 200 (Cinza claro)
-                    borderRadius: { topLeft: 8, topRight: 8 }, // Arredondar topo do "container" 
-                    stack: 'Stack 0',
-                    order: 2,
-                    datalabels: { display: false }, // Não mostrar zero ou valor do cinza
-                    barPercentage: 0.5,
-                    categoryPercentage: 0.7
+                    barPercentage: 0.65,
+                    categoryPercentage: 0.9
                 },
                 {
                     label: 'Horas Trabalhadas',
                     data: dataWorked,
-                    backgroundColor: '#0ea5e9', // Sky 500
-                    borderRadius: { bottomLeft: 8, bottomRight: 8 }, // Arredondar base
+                    backgroundColor: '#4ECDC4', // Turquesa vibrante
+                    borderRadius: 6,
                     stack: 'Stack 0',
-                    order: 3,
-                    barPercentage: 0.5,
-                    categoryPercentage: 0.7
+                    order: 2,
+                    barPercentage: 0.65,
+                    categoryPercentage: 0.9
                 }
             ]
         },
@@ -531,76 +578,137 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
                     beginAtZero: true,
                     stacked: true,
                     grid: {
-                        color: 'rgba(0,0,0,0.03)',
-                        drawBorder: false
+                        color: 'rgba(0,0,0,0.08)',
+                        drawBorder: false,
+                        lineWidth: 1
                     },
-                    suggestedMax: 180, // Dar um respiro acima de 176
+                    border: {
+                        display: false
+                    },
                     ticks: {
-                        font: { size: 11 },
-                        color: '#64748b'
+                        font: { size: 12, weight: '500', family: 'ui-sans-serif, system-ui' },
+                        color: '#64748b',
+                        padding: 10,
+                        callback: function (value) {
+                            return value + 'h';
+                        }
                     }
                 },
                 x: {
                     stacked: true,
                     grid: { display: false },
+                    border: {
+                        display: false
+                    },
                     ticks: {
                         autoSkip: false,
                         maxRotation: 45,
                         minRotation: 0,
-                        font: { size: 11 },
-                        color: '#475569'
+                        font: { size: 12, weight: '600', family: 'ui-sans-serif, system-ui' },
+                        color: '#334155',
+                        padding: 8
                     }
                 }
             },
             plugins: {
                 legend: {
+                    display: true,
                     position: 'top',
-                    labels: { usePointStyle: true, boxWidth: 8 },
-                    // Filtrar 'Horas Restantes' da legenda se quiser limpar, mas ajuda a entender a parte cinza
+                    align: 'end',
+                    labels: {
+                        usePointStyle: true,
+                        pointStyle: 'circle',
+                        boxWidth: 8,
+                        boxHeight: 8,
+                        font: { size: 12, weight: '600', family: 'ui-sans-serif, system-ui' },
+                        padding: 15,
+                        color: '#1e293b'
+                    }
                 },
                 tooltip: {
+                    enabled: true,
                     mode: 'index',
                     intersect: false,
+                    backgroundColor: 'rgba(15, 23, 42, 0.96)',
+                    titleFont: { size: 13, weight: '600', family: 'ui-sans-serif, system-ui' },
+                    bodyFont: { size: 12, family: 'ui-sans-serif, system-ui' },
+                    padding: 12,
+                    cornerRadius: 8,
+                    displayColors: true,
                     callbacks: {
+                        title: function (tooltipItems) {
+                            return tooltipItems[0].label;
+                        },
                         label: function (context) {
                             const label = context.dataset.label;
                             const val = context.parsed.y;
-                            if (val === 0 && label !== 'Horas Restantes') return null; // Esconder 0 exceto se for util
-                            if (label === 'Horas Restantes' && val === 0) return "Capacidade Esgotada";
+                            if (val === 0) return null;
                             return `${label}: ${Math.round(val)}h`;
                         },
-                        footer: function (tooltipItems) {
-                            // Calcular Total Real
-                            let total = 0;
-                            // Temos worked, remaining, overtime. 
-                            // O Total Real Trabalhado é Worked + Overtime.
-                            // Os datasets estão em ordem inversa no tooltipItems as vezes?
-                            // Vamos buscar do raw logic ou somar componentes.
-
-                            // A soma da stack visual (Y) é sem significado direto pois tem remaining.
-                            // Mas DataIndex é constante.
+                        afterBody: function (tooltipItems) {
                             const idx = tooltipItems[0].dataIndex;
-                            const worked = dataWorked[idx];
-                            const overtime = dataOvertime[idx];
-                            const realTotal = worked + overtime;
+                            const worked = dataWorked[idx] || 0;
+                            const overtime = dataOvertime[idx] || 0;
+                            const remaining = dataRemaining[idx] || 0;
+                            const total = worked + overtime;
 
-                            return `Total Realizado: ${Math.round(realTotal)}h`;
+                            let lines = [];
+                            lines.push('─────────────');
+                            lines.push(`Total: ${Math.round(total)}h`);
+                            lines.push(`Capacidade: 176h`);
+                            if (remaining > 0) {
+                                lines.push(`Disponível: ${Math.round(remaining)}h`);
+                            }
+                            return lines;
                         }
                     }
                 },
                 datalabels: {
-                    color: '#fff', // Texto branco
-                    font: { weight: 'bold', size: 11 },
-                    formatter: (value, ctx) => {
-                        // Só mostrar valor se for 'Horas Trabalhadas' ou 'Excedentes' e for relevante
-                        if (value < 5) return "";
-                        return Math.round(value);
+                    display: function (context) {
+                        const value = context.dataset.data[context.dataIndex];
+                        // Só mostra se o valor for significativo
+                        return value >= 5;
                     },
-                    display: (ctx) => {
-                        // Não mostrar label no cinza (Restantes)
-                        if (ctx.dataset.label === 'Horas Restantes') return false;
-                        return true;
-                    }
+                    color: '#ffffff',
+                    font: {
+                        weight: 'bold',
+                        size: 13,
+                        family: 'ui-sans-serif, system-ui'
+                    },
+                    formatter: (value, ctx) => {
+                        if (value < 5) return "";
+
+                        // Para cada barra, mostrar o total acumulado no topo
+                        const datasetIndex = ctx.datasetIndex;
+                        const dataIndex = ctx.dataIndex;
+
+                        // Se for o último dataset visível (topo da pilha), mostrar total
+                        if (datasetIndex === 0 && dataOvertime[dataIndex] >= 5) {
+                            // Topo da pilha - mostrar total
+                            const total = (dataWorked[dataIndex] || 0) + (dataOvertime[dataIndex] || 0);
+                            return Math.round(total) + 'h';
+                        } else if (datasetIndex === 1 && (dataOvertime[dataIndex] < 5)) {
+                            // Se não há overtime, mostrar total no worked
+                            const total = dataWorked[dataIndex] || 0;
+                            return Math.round(total) + 'h';
+                        }
+
+                        return '';
+                    },
+                    anchor: 'end',
+                    align: 'top',
+                    offset: 4,
+                    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+                    borderRadius: 4,
+                    padding: { top: 4, bottom: 4, left: 8, right: 8 }
+                }
+            },
+            layout: {
+                padding: {
+                    top: 35,
+                    bottom: 5,
+                    left: 5,
+                    right: 5
                 }
             }
         },
