@@ -288,7 +288,24 @@
                         <option value="month">Este Mês</option>
                         <option value="year">Este Ano</option>
                         <option value="all">Todo o Período</option>
-                    </select></div>
+                        <option value="custom">Personalizado</option>
+                    </select>
+                </div>
+
+                <!-- Container de Data Personalizada (Invisível por padrão) -->
+                <div id="customDateContainer"
+                    style="display: none; flex-direction: column; gap: 8px; margin-bottom: 12px; padding-left: 8px; border-left: 2px solid var(--accent);">
+                    <div class="control" style="margin-bottom:0">
+                        <label style="font-size: 11px;">De:</label>
+                        <input type="date" id="startDate"
+                            style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px;">
+                    </div>
+                    <div class="control" style="margin-bottom:0">
+                        <label style="font-size: 11px;">Até:</label>
+                        <input type="date" id="endDate"
+                            style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px;">
+                    </div>
+                </div>
                 <div class="control"><label>Cliente</label><select id="clientSelect">
                         <option value="">Todos</option>
                     </select></div>

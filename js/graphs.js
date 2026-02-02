@@ -21,16 +21,7 @@ const COLORS = {
     ]
 };
 
-const ROLE_MAPPINGS = [
-    { role: 'Demanda', nameKey: 'Responsável Demanda', hoursKey: 'Horas Projeto (Responsável Demanda)', admKey: 'Horas Adm (Responsável Demanda)' },
-    { role: 'Trainee', nameKey: 'Trainee do Projeto', hoursKey: 'Horas Projeto (Trainee)', admKey: 'Horas Adm (Trainee)' },
-    { role: 'Cyber', nameKey: 'Responsável Cyber', hoursKey: 'Horas Projeto (Cyber)', admKey: 'Horas Adm (Cyber)' },
-    { role: 'Intelidados', nameKey: 'Responsável Intelidados', hoursKey: 'Horas Projeto (Intelidados)', admKey: 'Horas Adm (Intelidados)' },
-    { role: 'Desenvolvimento', nameKey: 'Responsável Desenvolvimento', hoursKey: 'Horas Projeto (Desenvolvimento)', admKey: 'Horas Adm (Desenvolvimento)' },
-    // Sócio/Gerente don't have hours, only filters
-    { role: 'Sócio', nameKey: 'Sócio Responsável', hoursKey: null, admKey: null },
-    { role: 'Gerente', nameKey: 'Gerente Responsável', hoursKey: null, admKey: null }
-];
+// ROLE_MAPPINGS REMOVIDO (Não utilizamos mais CSV1 para atribuições)
 
 
 // Instâncias Globais de Gráficos
@@ -130,47 +121,20 @@ function processTasks(tasks) {
                     hoursTotal: colab.horasTotal || 0
                 });
             });
-        } else {
-            // FALLBACK: Usar dados do CSV1 (legado)
-            ROLE_MAPPINGS.forEach(map => {
-                const name = (raw[map.nameKey] || "").trim();
-                if (name) {
-                    let hProj = 0;
-                    let hAdm = 0;
-                    if (map.hoursKey) hProj = parseFloat(raw[map.hoursKey] || 0);
-                    if (map.admKey) hAdm = parseFloat(raw[map.admKey] || 0);
-
-                    // segurança de fallback
-                    if (isNaN(hProj)) hProj = 0;
-                    if (isNaN(hAdm)) hAdm = 0;
-
-                    assignments.push({
-                        role: map.role,
-                        person: name,
-                        hoursProject: hProj,
-                        hoursAdm: hAdm,
-                        hoursTotal: hProj + hAdm
-                    });
-                }
-            });
         }
+        // REMOVIDO: Fallback para CSV1 (legado)
 
-        // Helper para analisar datas de forma simples
-        const dateStart = parseDate(raw["Data Início (Previsão)"]);
-        const dateEnd = parseDate(raw["Data Conclusão (Previsão)"]);
-
-        // Usar datas do CSV2 se disponíveis
+        // Usar datas do CSV2 SOMENTE
         const csv2DateStart = csv2Details?.dataInicio ? parseDate(csv2Details.dataInicio) : null;
         const csv2DateEnd = csv2Details?.dataFim ? parseDate(csv2Details.dataFim) : null;
 
-        // Usar horas do CSV2 se disponíveis, senão fallback para CSV1
-        let hoursProject, hoursAdm;
+        // Usar horas do CSV2 SOMENTE
+        let hoursProject = 0;
+        let hoursAdm = 0;
+
         if (csv2Details) {
             hoursProject = csv2Details.horasProjetoTotal || 0;
             hoursAdm = csv2Details.horasAdmTotal || 0;
-        } else {
-            hoursProject = parseFloat(raw["Horas"] || t.hoursProject || 0);
-            hoursAdm = parseFloat(raw["Horas ADM"] || t.hoursAdm || 0);
         }
 
         // Estrutura do mapa
@@ -178,16 +142,16 @@ function processTasks(tasks) {
             id: t.id || raw["ID"] || raw["id"],
             client: raw["Nome Cliente"] || t.title || "Sem Cliente",
             title: t.title || raw["Detalhe da demanda (Escopo)"] || "Demanda", // Garantir que título exista
-            owner: t.responsible || raw["Responsável Demanda"] || "Sem Responsável",
+            owner: t.responsible || raw["Responsável Demanda"] || "Sem Responsável", // Ainda mantendo owner genérico ou deve vir do CSV2? Mantendo por enquanto para compatibilidade de display simples, mas assignments dita o gráfico
             assignments: assignments,
             type: t.demandType || raw["Tipo de Demanda"] || "OUTROS",
             status: t.status || raw["Status"] || "Backlog",
             hoursProject: hoursProject,
             hoursAdm: hoursAdm,
             get hours() { return (this.hoursProject || 0) + (this.hoursAdm || 0); }, // Total calculado dinamicamente
-            date: csv2DateEnd || dateEnd, // Priorizar data do CSV2
-            dateStart: csv2DateStart || dateStart,
-            dateEnd: csv2DateEnd || dateEnd,
+            date: csv2DateEnd, // SOMENTE CSV2
+            dateStart: csv2DateStart, // SOMENTE CSV2
+            dateEnd: csv2DateEnd, // SOMENTE CSV2
             raw: raw,
             hasCSV2Data: !!csv2Details // Flag para debug
         };
@@ -202,7 +166,7 @@ function processTasks(tasks) {
             totalP += p.hoursProject;
             totalA += p.hoursAdm;
         });
-        console.log(`[Graphs] Volumetria Total: ${totalH.toFixed(1)}h (Projeto: ${totalP.toFixed(1)}h, ADM: ${totalA.toFixed(1)}h)`);
+        console.log(`[Graphs] Volumetria Total (CSV2 Only): ${totalH.toFixed(1)}h (Projeto: ${totalP.toFixed(1)}h, ADM: ${totalA.toFixed(1)}h)`);
     }
 
     return processed;
@@ -266,10 +230,22 @@ function setupEventListeners() {
     // Filtros automáticos (change)
     const filterIds = [
         'periodSelect', 'clientSelect', 'respSelect',
-        'respViewSelect', 'metricSelect', 'deadlineSelect'
+        'respViewSelect', 'metricSelect', 'deadlineSelect',
+        'startDate', 'endDate' // Added date inputs
     ];
     filterIds.forEach(id => {
-        document.getElementById(id).addEventListener('change', applyFilters);
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', () => {
+            // Logic to show/hide custom date container
+            if (id === 'periodSelect') {
+                const val = document.getElementById('periodSelect').value;
+                const container = document.getElementById('customDateContainer');
+                if (container) {
+                    container.style.display = (val === 'custom') ? 'flex' : 'none';
+                }
+            }
+            applyFilters();
+        });
     });
 
     document.getElementById('btnReset').addEventListener('click', resetFilters);
@@ -277,6 +253,9 @@ function setupEventListeners() {
 
 function resetFilters() {
     document.getElementById('periodSelect').value = "30";
+    document.getElementById('customDateContainer').style.display = 'none'; // Hide on reset
+    document.getElementById('startDate').value = "";
+    document.getElementById('endDate').value = "";
     document.getElementById('clientSelect').value = "";
     document.getElementById('respSelect').value = "";
     document.getElementById('metricSelect').value = "all";
@@ -292,6 +271,14 @@ function applyFilters() {
     const metric = document.getElementById('metricSelect').value; // hours, hoursProject, hoursAdm
     const deadline = document.getElementById('deadlineSelect').value; // all, ontime, overdue
     const viewMode = document.getElementById('respViewSelect').value; // individual, aggregated
+
+    // Custom Dates
+    const startStr = document.getElementById('startDate').value;
+    const endStr = document.getElementById('endDate').value;
+
+    // Parse custom dates (start of day / end of day)
+    let customStart = startStr ? new Date(startStr + 'T00:00:00') : null;
+    let customEnd = endStr ? new Date(endStr + 'T23:59:59') : null;
 
     let filtered = APP_DATA.filter(item => {
         // Filtro de Cliente
@@ -316,6 +303,11 @@ function applyFilters() {
             if (itemDate.getMonth() !== TODAY.getMonth() || itemDate.getFullYear() !== TODAY.getFullYear()) return false;
         } else if (period === 'year') {
             if (itemDate.getFullYear() !== TODAY.getFullYear()) return false;
+        } else if (period === 'custom') {
+            // Se as datas não estiverem preenchidas, mostra tudo ou nada?
+            // Vamos mostrar tudo se vazio, ou filtrar se preenchido.
+            if (customStart && itemDate < customStart) return false;
+            if (customEnd && itemDate > customEnd) return false;
         }
 
         // Deadline Logic

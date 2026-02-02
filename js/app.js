@@ -110,20 +110,22 @@ function normalizeRow(row) {
   // PRIORIZAR DADOS DO CSV2 SE DISPONÍVEIS
   const csv2Details = row["_csv2Details"];
 
-  let hoursAdm, hoursTotal, start, end;
+  let hoursAdm, hoursTotal, hoursProject, start, end;
 
   if (csv2Details) {
     // USAR DADOS DO CSV2 (prioritário)
     hoursAdm = csv2Details.horasAdmTotal || 0;
     hoursTotal = csv2Details.horasTotal || 0;
+    hoursProject = csv2Details.horasProjetoTotal || 0; // Novo campo
     start = csv2Details.dataInicio || safeStr(row["Data Início (Previsão)"]);
     end = csv2Details.dataFim || safeStr(row["Data Conclusão (Previsão)"]);
 
-    console.log(`[normalizeRow] Usando CSV2 para ID ${safeStr(row["ID"])}: ${hoursTotal}h total (${hoursAdm}h ADM)`);
+    console.log(`[normalizeRow] Usando CSV2 para ID ${safeStr(row["ID"])}: ${hoursTotal}h total (${hoursAdm}h ADM, ${hoursProject}h PROJ)`);
   } else {
     // FALLBACK: Usar dados do CSV1
     hoursAdm = toNumber(row["Horas ADM"]);
     hoursTotal = toNumber(row["Horas"]);
+    hoursProject = Math.max(0, hoursTotal - hoursAdm); // Derivado no fallback
     start = safeStr(row["Data Início (Previsão)"]);
     end = safeStr(row["Data Conclusão (Previsão)"]);
   }
@@ -139,6 +141,7 @@ function normalizeRow(row) {
     title: client || safeStr(row["Área Solicitante"]) || "",
     subtitle: title,
     hoursAdm,
+    hoursProject, // Expor
     hoursTotal,
     responsible,
     raw: row,
@@ -421,13 +424,15 @@ function renderTaskCard(t) {
   el.addEventListener("dragstart", (e) => handleDragStart(e, t));
   const avatar = initials(t.responsible);
 
-  const projHours = t.hoursTotal || 0;
+  const projHours = t.hoursProject || 0; // Usar hoursProject explícito (calculado no normalizeRow)
   const admHours = t.hoursAdm || 0;
+  const totalHours = t.hoursTotal || 0;
 
-  // tags: tipo de demanda + horas ADM
+  // tags: tipo de demanda + horas ADM + horas Projeto + Total
   const tagType = `<div class="tag">${t.demandType}</div>`;
-  const tagAdm = `<div class="tag">${admHours.toFixed(0)}h ADM</div>`;
-  const tagTot = projHours ? `<div class="tag">${projHours.toFixed(0)}h total</div>` : "";
+  const tagAdm = `<div class="tag" style="background:#e0f7fa; color:#006064;">${admHours.toFixed(0)}h ADM</div>`;
+  const tagProj = projHours > 0 ? `<div class="tag" style="background:#fff3e0; color:#e65100;">${projHours.toFixed(0)}h Projeto</div>` : "";
+  const tagTot = totalHours > 0 ? `<div class="tag" style="font-weight:bold;">${totalHours.toFixed(0)}h Total</div>` : "";
 
   el.innerHTML = `
     <div class="top">
@@ -440,6 +445,7 @@ function renderTaskCard(t) {
     <div class="hours">
       ${tagType}
       ${tagAdm}
+      ${tagProj}
       ${tagTot}
     </div>
   `;
@@ -476,34 +482,34 @@ function openModal(task) {
   ];
 
   // Campos extras solicitados (Responsáveis e Horas)
-  const extraFields = [
-    { label: "Responsável Demanda", key: "Responsável Demanda" },
-    { label: "Horas Projeto (Demanda)", key: "Horas Projeto (Responsável Demanda)" },
-    { label: "Horas Adm (Demanda)", key: "Horas Adm (Responsável Demanda)" },
+  // Campos extras DINÂMICOS baseados no CSV2
+  const csv2Details = task.raw?.["_csv2Details"];
 
-    { label: "Trainee do Projeto", key: "Trainee do Projeto" },
-    { label: "Horas Projeto (Trainee)", key: "Horas Projeto (Trainee)" },
-    { label: "Horas Adm (Trainee)", key: "Horas Adm (Trainee)" },
+  if (csv2Details && csv2Details.colaboradores && csv2Details.colaboradores.length > 0) {
+    csv2Details.colaboradores.forEach(colab => {
+      // Adiciona Responsável
+      kvs.push([`Responsável (${colab.responsabilidades})`, colab.colaborador]);
 
-    { label: "Responsável Cyber", key: "Responsável Cyber" },
-    { label: "Horas Projeto (Cyber)", key: "Horas Projeto (Cyber)" },
-    { label: "Horas Adm (Cyber)", key: "Horas Adm (Cyber)" },
-
-    { label: "Responsável Intelidados", key: "Responsável Intelidados" },
-    { label: "Horas Projeto (Intelidados)", key: "Horas Projeto (Intelidados)" },
-    { label: "Horas Adm (Intelidados)", key: "Horas Adm (Intelidados)" },
-
-    { label: "Responsável Desenv.", key: "Responsável Desenvolvimento" },
-    { label: "Horas Projeto (Desenv.)", key: "Horas Projeto (Desenvolvimento)" },
-    { label: "Horas Adm (Desenv.)", key: "Horas Adm (Desenvolvimento)" },
-  ];
-
-  extraFields.forEach(f => {
-    const val = safeStr(task.raw?.[f.key]);
-    if (val) {
-      kvs.push([f.label, val]);
-    }
-  });
+      // Adiciona Horas se houver
+      if (colab.horasProjeto > 0) {
+        kvs.push([`Horas Projeto (${colab.responsabilidades})`, `${colab.horasProjeto.toFixed(0)}h`]);
+      }
+      if (colab.horasAdm > 0) {
+        kvs.push([`Horas ADM (${colab.responsabilidades})`, `${colab.horasAdm.toFixed(0)}h`]);
+      }
+    });
+  } else {
+    // Fallback mínimo se não tiver CSV2 (opcional, ou não mostrar nada)
+    // Se quiser manter comportamento antigo de mostrar se existir no raw do CSV1:
+    const oldFields = [
+      "Responsável Demanda", "Responsável Cyber", "Responsável Intelidados",
+      "Trainee do Projeto", "Responsável Desenvolvimento"
+    ];
+    oldFields.forEach(key => {
+      const val = safeStr(task.raw?.[key]);
+      if (val) kvs.push([key, val]);
+    });
+  }
 
   const grid = $("#modalGrid");
   grid.innerHTML = "";
@@ -514,8 +520,8 @@ function openModal(task) {
     grid.appendChild(d);
   });
 
-  // Adicionar detalhamento do CSV2 se disponível
-  const csv2Details = task.raw?.["_csv2Details"];
+  // Adicionar detalhamento do CSV2 se disponível (Variável já declarada acima)
+  // const csv2Details = task.raw?.["_csv2Details"];
   if (csv2Details && csv2Details.colaboradores && csv2Details.colaboradores.length > 0) {
     const detailsSection = document.createElement("div");
     detailsSection.style.marginTop = "20px";
@@ -592,11 +598,100 @@ function openModal(task) {
   const desc = safeStr(task.raw?.["Detalhe da demanda (Escopo)"]);
   $("#modalNote").textContent = desc || "Sem detalhes adicionais.";
 
+  // Checklist Container
+  let checklistContainer = $("#checklistContainer");
+  if (!checklistContainer) {
+    checklistContainer = document.createElement("div");
+    checklistContainer.id = "checklistContainer";
+    checklistContainer.className = "checklist-container";
+    $("#modalNote").after(checklistContainer);
+  }
+
+  // Renderizar Checklist
+  renderChecklist(task, checklistContainer);
+
   $("#modalBackdrop").classList.add("show");
 }
 
 function closeModal() {
   $("#modalBackdrop").classList.remove("show");
+}
+
+/* -------- Checklist Logic -------- */
+function renderChecklist(task, container) {
+  // Garantir array de checklist
+  if (!task.checklist) task.checklist = [];
+
+  container.innerHTML = `
+    <div class="checklist-title">
+      <span>✅</span> Checklist da Demanda
+    </div>
+    <div class="checklist-items" id="checklistItems"></div>
+    <div class="checklist-input-row">
+      <span style="font-size:16px;">➕</span>
+      <input type="text" class="checklist-add-input" placeholder="Adicionar nova etapa (Enter)..." id="checklistInput">
+    </div>
+  `;
+
+  const itemsContainer = container.querySelector("#checklistItems");
+
+  task.checklist.forEach((item, index) => {
+    const itemEl = document.createElement("div");
+    itemEl.className = "checklist-item";
+    itemEl.innerHTML = `
+      <input type="checkbox" class="checklist-checkbox" ${item.done ? "checked" : ""}>
+      <input type="text" class="checklist-text ${item.done ? "done" : ""}" value="${escapeHTML(item.text)}">
+       <button class="checklist-delete" title="Remover item">✖</button>
+    `;
+
+    // Eventos do Item
+    const checkbox = itemEl.querySelector(".checklist-checkbox");
+    checkbox.addEventListener("change", () => {
+      item.done = checkbox.checked;
+      itemEl.querySelector(".checklist-text").classList.toggle("done", item.done);
+      saveChecklist(task);
+    });
+
+    const textInput = itemEl.querySelector(".checklist-text");
+    textInput.addEventListener("change", () => {
+      item.text = textInput.value;
+      saveChecklist(task);
+    });
+
+    const delBtn = itemEl.querySelector(".checklist-delete");
+    delBtn.addEventListener("click", () => {
+      task.checklist.splice(index, 1);
+      saveChecklist(task);
+      renderChecklist(task, container); // Re-render para atualizar índices
+    });
+
+    itemsContainer.appendChild(itemEl);
+  });
+
+  // Evento de Adicionar
+  const addInput = container.querySelector("#checklistInput");
+  addInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && addInput.value.trim()) {
+      task.checklist.push({ text: addInput.value.trim(), done: false });
+      saveChecklist(task);
+      renderChecklist(task, container);
+      // Manter foco no input após re-render? 
+      // O re-render destroi o input. 
+      // Melhor: focar no novo input criado após render
+      setTimeout(() => {
+        const newInput = container.querySelector("#checklistInput");
+        if (newInput) newInput.focus();
+      }, 0);
+    }
+  });
+}
+
+function saveChecklist(task) {
+  // A task já é uma referência ao objeto dentro do array global 'tasks' ou 'APP_DATA'?
+  // Em app.js, 'tasks' é a variável global. O objeto 'task' passado para openModal vem dela?
+  // Sim, openModal é chamado com objetos de 'tasks'.
+  // Então, basta salvar 'tasks' no LocalStorage.
+  saveToLocalStorage(tasks);
 }
 
 /* -------- Carregamento de dados -------- */
