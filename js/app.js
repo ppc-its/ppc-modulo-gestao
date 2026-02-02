@@ -792,7 +792,6 @@ function aggregateCsv2ByDemandaId(csv2) {
 
     // Normalizar tipo de hora
     let isAdm = tipoHoraStr.includes("adm") || tipoHoraStr.includes("administrativo");
-    // Se não for ADM, assumir Projeto como padrão se tiver horas e algum texto no Tipo
 
     // Inicializar agregação se não existir
     if (!aggregated.has(demandaId)) {
@@ -801,13 +800,14 @@ function aggregateCsv2ByDemandaId(csv2) {
         horasProjetoTotal: 0,
         horasTotal: 0,
         datas: [],
-        colaboradores: []
+        colaboradores: [],
+        lancamentos: [] // Novo: Armazenar lançamentos individuais
       });
     }
 
     const agg = aggregated.get(demandaId);
 
-    // Acumular horas por tipo
+    // Acumular horas por tipo (Totais)
     agg.horasTotal += horas;
     if (isAdm) {
       agg.horasAdmTotal += horas;
@@ -819,6 +819,14 @@ function aggregateCsv2ByDemandaId(csv2) {
     if (dataStr) {
       agg.datas.push(dataStr);
     }
+
+    // Novo: Guardar lançamento granular
+    agg.lancamentos.push({
+      date: dataStr,
+      hours: horas,
+      person: colaborador,
+      type: isAdm ? 'adm' : 'project'
+    });
 
     // Adicionar colaborador (verificar se já existe)
     const existingColabIndex = agg.colaboradores.findIndex(c =>
@@ -928,6 +936,7 @@ function mergeCsvData(csv1, csv2) {
 
       // Adicionar detalhes completos do CSV2 para uso no modal
       mergedRow["_csv2Details"] = {
+        lancamentos: csv2Data.lancamentos, // CRUCIAL para gráficos precisos
         colaboradores: csv2Data.colaboradores,
         dataInicio: csv2Data.dataInicio,
         dataFim: csv2Data.dataFim,
