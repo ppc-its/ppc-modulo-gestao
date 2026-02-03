@@ -149,75 +149,7 @@ function normalizeRow(row) {
   };
 }
 
-/* -------- Parse de CSV (robusto o suficiente para o arquivo diário) -------- */
-function parseCSV(text) {
-  // Lida com vírgulas, aspas e quebras de linha em campos entre aspas.
-  const rows = [];
-  let i = 0, field = "", row = [], inQuotes = false;
-
-  while (i < text.length) {
-    const c = text[i];
-
-    if (inQuotes) {
-      if (c === '"') {
-        const next = text[i + 1];
-        if (next === '"') { // aspas escapadas
-          field += '"';
-          i += 2;
-          continue;
-        } else {
-          inQuotes = false;
-          i++;
-          continue;
-        }
-      } else {
-        field += c;
-        i++;
-        continue;
-      }
-    } else {
-      if (c === '"') {
-        inQuotes = true;
-        i++;
-        continue;
-      }
-      if (c === ',') {
-        row.push(field);
-        field = "";
-        i++;
-        continue;
-      }
-      if (c === '\r') {
-        i++;
-        continue;
-      }
-      if (c === '\n') {
-        row.push(field);
-        rows.push(row);
-        row = [];
-        field = "";
-        i++;
-        continue;
-      }
-      field += c;
-      i++;
-    }
-  }
-  // última linha
-  if (field.length || row.length) {
-    row.push(field);
-    rows.push(row);
-  }
-
-  const header = rows.shift()?.map(h => h.trim()) || [];
-  const data = rows.filter(r => r.some(x => String(x ?? "").trim().length)).map(r => {
-    const obj = {};
-    header.forEach((h, idx) => obj[h] = r[idx] ?? "");
-    return obj;
-  });
-
-  return data;
-}
+// Funções de parseCSV REMOVIDAS (não mais utilizadas no front)
 
 /* -------- Estado -------- */
 let tasks = [];
@@ -758,203 +690,7 @@ function loadCsv2FromLocalStorage() {
   }
 }
 
-/**
- * Agrega dados do CSV2 por DemandaId
- * CSV2 tem múltiplas linhas por demanda (uma por colaborador)
- */
-function aggregateCsv2ByDemandaId(csv2) {
-  const aggregated = new Map();
-
-  if (!csv2 || !Array.isArray(csv2)) return aggregated;
-
-  // Mapeamento flexível de colunas
-  const findCol = (row, words) => {
-    const keys = Object.keys(row);
-    for (const word of words) {
-      const found = keys.find(k => k.toLowerCase().trim() === word.toLowerCase());
-      if (found) return row[found];
-    }
-    return null;
-  };
-
-  csv2.forEach(row => {
-    const demandaId = safeStr(findCol(row, ["DemandaId", "ID Demanda", "Codigo Demanda", "Demanda ID"]));
-    if (!demandaId) return;
-
-    // Extrair dados da linha com fallbacks robustos
-    const dataStr = safeStr(findCol(row, ["Data", "Data de Lançamento", "Data Lancamento"]));
-    const horasStr = findCol(row, ["Horas", "Quantidade de Horas", "Horas Lançadas", "Vlr Lançamento"]);
-    const horas = toNumber(horasStr);
-
-    const tipoHoraStr = safeStr(findCol(row, ["Tipo da hora", "Tipo de hora", "Tipo Hora", "Categoria de hora"])).toLowerCase();
-    const colaborador = safeStr(findCol(row, ["Colaborador", "Nome Colaborador", "Profissional", "Nome do Colaborador"]));
-    const responsabilidades = safeStr(findCol(row, ["Responsabilidades", "Responsabilidade", "Função", "Cargo"]));
-
-    // Normalizar tipo de hora
-    let isAdm = tipoHoraStr.includes("adm") || tipoHoraStr.includes("administrativo");
-
-    // Inicializar agregação se não existir
-    if (!aggregated.has(demandaId)) {
-      aggregated.set(demandaId, {
-        horasAdmTotal: 0,
-        horasProjetoTotal: 0,
-        horasTotal: 0,
-        datas: [],
-        colaboradores: [],
-        lancamentos: [] // Novo: Armazenar lançamentos individuais
-      });
-    }
-
-    const agg = aggregated.get(demandaId);
-
-    // Acumular horas por tipo (Totais)
-    agg.horasTotal += horas;
-    if (isAdm) {
-      agg.horasAdmTotal += horas;
-    } else {
-      agg.horasProjetoTotal += horas; // Fallback para Projeto
-    }
-
-    // Coletar datas
-    if (dataStr) {
-      agg.datas.push(dataStr);
-    }
-
-    // Novo: Guardar lançamento granular
-    agg.lancamentos.push({
-      date: dataStr,
-      hours: horas,
-      person: colaborador,
-      type: isAdm ? 'adm' : 'project'
-    });
-
-    // Adicionar colaborador (verificar se já existe)
-    const existingColabIndex = agg.colaboradores.findIndex(c =>
-      c.colaborador === colaborador && c.responsabilidades === responsabilidades
-    );
-
-    if (existingColabIndex >= 0) {
-      // Colaborador já existe, acumular horas
-      const colab = agg.colaboradores[existingColabIndex];
-      colab.horasTotal += horas;
-      if (isAdm) {
-        colab.horasAdm += horas;
-      } else {
-        colab.horasProjeto += horas;
-      }
-    } else {
-      // Novo colaborador
-      agg.colaboradores.push({
-        colaborador,
-        responsabilidades,
-        horasAdm: isAdm ? horas : 0,
-        horasProjeto: !isAdm ? horas : 0,
-        horasTotal: horas
-      });
-    }
-  });
-
-  // Calcular range de datas para cada demanda
-  aggregated.forEach((agg, demandaId) => {
-    if (agg.datas.length > 0) {
-      // Tentar ordenar datas (assume formato que permita ordenação léxica ou tenta converter)
-      agg.datas.sort();
-      agg.dataInicio = agg.datas[0];
-      agg.dataFim = agg.datas[agg.datas.length - 1];
-    }
-  });
-
-  console.log(`[CSV2 Aggregation] ${aggregated.size} demandas processadas das ${csv2.length} linhas do CSV2.`);
-  return aggregated;
-}
-
-/**
- * Mescla CSV2 no CSV1 baseado na relação ID (CSV1) ↔ DemandaId (CSV2)
- * Estratégia: CSV1 como base, CSV2 substitui apenas campos específicos
- * @param {Array} csv1 - Array de objetos do CSV principal (com coluna ID)
- * @param {Array} csv2 - Array de objetos do CSV complementar (com coluna DemandaId)
- * @returns {Array} - Array mesclado
- */
-function mergeCsvData(csv1, csv2) {
-  if (!csv1 || !Array.isArray(csv1)) return [];
-  if (!csv2 || !Array.isArray(csv2)) return csv1;
-
-  // Agregar CSV2 por DemandaId
-  const csv2Aggregated = aggregateCsv2ByDemandaId(csv2);
-
-  console.log(`[CSV Merge] CSV1 records: ${csv1.length}, CSV2 aggregated demands: ${csv2Aggregated.size}`);
-
-  // Mesclar CSV2 agregado em CSV1
-  const merged = csv1.map(row1 => {
-    const id = safeStr(row1["ID"] || row1["id"] || row1["Id"]);
-
-    if (id && csv2Aggregated.has(id)) {
-      const csv2Data = csv2Aggregated.get(id);
-
-      // Criar objeto mesclado: CSV1 como base
-      const mergedRow = { ...row1 };
-
-      // Substituir campos específicos com dados do CSV2
-      mergedRow["Horas ADM"] = csv2Data.horasAdmTotal;
-      mergedRow["Horas"] = csv2Data.horasTotal;
-      mergedRow["Horas Projeto"] = csv2Data.horasProjetoTotal;
-
-      // Mapear colaboradores para campos de responsáveis
-      // Ordenar por horas totais (maior primeiro)
-      const colaboradoresOrdenados = [...csv2Data.colaboradores].sort((a, b) => b.horasTotal - a.horasTotal);
-
-      // Mapear responsabilidades conhecidas
-      const responsabilidadesMap = {
-        "responsável demanda": "Responsável Demanda",
-        "trainee do projeto": "Trainee do Projeto",
-        "responsável cyber": "Responsável Cyber",
-        "responsável intelidados": "Responsável Intelidados",
-        "responsável desenvolvimento": "Responsável Desenvolvimento",
-        "sócio responsável": "Sócio Responsável",
-        "gerente responsável": "Gerente Responsável"
-      };
-
-      // Limpar campos antigos do CSV1
-      Object.keys(responsabilidadesMap).forEach(key => {
-        const fieldName = responsabilidadesMap[key];
-        delete mergedRow[fieldName];
-        delete mergedRow[`Horas Projeto (${fieldName})`];
-        delete mergedRow[`Horas Adm (${fieldName})`];
-      });
-
-      // Preencher com dados do CSV2
-      colaboradoresOrdenados.forEach(colab => {
-        const respKey = colab.responsabilidades.toLowerCase();
-        const fieldName = responsabilidadesMap[respKey];
-
-        if (fieldName) {
-          mergedRow[fieldName] = colab.colaborador;
-          mergedRow[`Horas Projeto (${fieldName})`] = colab.horasProjeto;
-          mergedRow[`Horas Adm (${fieldName})`] = colab.horasAdm;
-        }
-      });
-
-      // Adicionar detalhes completos do CSV2 para uso no modal
-      mergedRow["_csv2Details"] = {
-        lancamentos: csv2Data.lancamentos, // CRUCIAL para gráficos precisos
-        colaboradores: csv2Data.colaboradores,
-        dataInicio: csv2Data.dataInicio,
-        dataFim: csv2Data.dataFim,
-        horasAdmTotal: csv2Data.horasAdmTotal,
-        horasProjetoTotal: csv2Data.horasProjetoTotal,
-        horasTotal: csv2Data.horasTotal
-      };
-
-      console.log(`[CSV Merge] Matched ID: ${id} - ${csv2Data.colaboradores.length} colaboradores, ${csv2Data.horasTotal}h total`);
-      return mergedRow;
-    }
-
-    return row1; // Sem correspondência, retorna apenas CSV1
-  });
-
-  console.log(`[CSV Merge] Merged ${merged.length} records`);
-  return merged;
-}
+// Funções de CSV removidas
 
 function updateCsvStatus() {
   const statusEl = $("#csvStatus");
@@ -1170,42 +906,23 @@ function bindEvents() {
   }
 }
 
+// New Init using API
 async function init() {
   loadFilters();
   bindEvents();
 
-  // Carregar CSVs salvos do localStorage
-  csv1Data = loadCsv1FromLocalStorage();
-  csv2Data = loadCsv2FromLocalStorage();
-  updateCsvStatus();
-
-  // Carregamento da API
   try {
-    const list = await api.getTasks();
-    tasks = normalizeTasks(list);
+    const data = await api.getAllData();
+    tasks = normalizeTasks(data);
     setUpdatedMeta(new Date().toISOString());
-    // SYNC: Salvar o estado da API no LS para que gráficos vejam imediatamente (e vejam a mesma versão)
-    saveToLocalStorage(tasks);
-    hideBanner();
-  } catch (err) {
-    console.warn("API load failed, falling back to sample or empty", err);
-
-    // Se temos CSVs carregados, usar dados mesclados
-    if (csv1Data) {
-      const mergedData = mergeCsvData(csv1Data, csv2Data);
-      tasks = normalizeTasks(mergedData);
-      setBanner("Modo Local: Usando dados dos CSVs carregados. (API indisponível)", "info");
-    } else {
-      setBanner("Erro ao carregar dados da API. Mostrando exemplo estático.", "error");
-      if (window.__PPC_SAMPLE__) {
-        tasks = normalizeTasks(window.__PPC_SAMPLE__);
-      }
-    }
+    populatePeopleDropdown();
+    render();
+    console.log("Inicialização via API concluída.", tasks.length, "tarefas.");
+  } catch (e) {
+    console.error("Erro fatal ao carregar dados:", e);
+    setBanner("Erro ao carregar dados do servidor. Verifique o console.", "error");
+    // Fallback para tarefas vazias ou sample se desejar
   }
-
-  populatePeopleDropdown();
-  syncControls();
-  render();
 }
 
 /**
