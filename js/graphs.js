@@ -21,6 +21,64 @@ const COLORS = {
     ]
 };
 
+// Feriados Nacionais (Brasil) - Formato YYYY-MM-DD
+// Inclui Carnaval, Corpus Christi e Fixos
+const HOLIDAYS = [
+    // 2024
+    '2024-01-01', // Confraternização
+    '2024-02-12', // Carnaval
+    '2024-02-13', // Carnaval
+    '2024-03-29', // Paixão de Cristo
+    '2024-04-21', // Tiradentes
+    '2024-05-01', // Trabalho
+    '2024-05-30', // Corpus Christi
+    '2024-09-07', // Independência
+    '2024-10-12', // Padroeira
+    '2024-11-02', // Finados
+    '2024-11-15', // Proclamação
+    '2024-11-20', // Consciência Negra
+    '2024-12-25', // Natal
+
+    // 2025
+    '2025-01-01',
+    '2025-03-03', // Carnaval
+    '2025-03-04', // Carnaval
+    '2025-04-18', // Paixão
+    '2025-04-21',
+    '2025-05-01',
+    '2025-06-19', // Corpus
+    '2025-09-07',
+    '2025-10-12',
+    '2025-11-02',
+    '2025-11-15',
+    '2025-11-20',
+    '2025-12-25'
+];
+
+function getMonthlyCapacity(year, month) {
+    // month é 0-indexed (0=Jan)
+    let d = new Date(year, month, 1);
+    let businessDays = 0;
+
+    while (d.getMonth() === month) {
+        const day = d.getDay();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const dayStr = String(d.getDate()).padStart(2, '0');
+        const dateStr = `${y}-${m}-${dayStr}`;
+
+        // Segunda(1) a Sexta(5)
+        if (day !== 0 && day !== 6) {
+            // Verifica se é feriado
+            if (!HOLIDAYS.includes(dateStr)) {
+                businessDays++;
+            }
+        }
+        d.setDate(d.getDate() + 1);
+    }
+    return businessDays * 8;
+}
+
 // ROLE_MAPPINGS REMOVIDO (Não utilizamos mais CSV1 para atribuições)
 
 
@@ -510,6 +568,7 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
     let dataWorked = [];
     let dataRemaining = [];
     let dataOvertime = [];
+    let dataCapacity = [];
 
     if (viewMode === 'individual') {
         // --- VISÃO INDIVIDUAL (Cada Pessoa = Uma Barra) ---
@@ -526,130 +585,181 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
             dataWorked.push(worked);
             dataRemaining.push(remaining);
             dataOvertime.push(overtime);
+            dataCapacity.push(CAPACITY);
         });
     } else if (viewMode === 'individual_monthly') {
-        // --- VISÃO INDIVIDUAL MENSAL (Quebra por Mês) ---
-        // X-axis: Pessoas
-        // Datasets: Um dataset POR MÊS (Grouped Bars)
-
+        // --- VISÃO INDIVIDUAL MENSAL ---
         const respData = processResponsibleData(data, respMetric, filterOwner);
-        labels = respData.persons; // X-axis são as pessoas
+        labels = respData.persons;
 
-        // Cores dos meses (cíclicas)
+        // Plugin para desenhar linhas de capacidade dinâmica sobre cada barra
+        const capacityOverlayPlugin = {
+            id: 'capacityOverlay',
+            afterDatasetsDraw(chart, args, options) {
+                const { ctx, scales: { x, y } } = chart;
+
+                chart.data.datasets.forEach((dataset, i) => {
+                    const meta = chart.getDatasetMeta(i);
+                    // Ignora datasets que não são de dados temporais (ex: se houver outros)
+                    if (dataset.type === 'line') return;
+
+                    let capacity = 176;
+                    const monthName = dataset.label;
+
+                    try {
+                        const parts = monthName.split('/');
+                        if (parts.length === 2) {
+                            const mStr = parts[0].toLowerCase();
+                            const yStr = '20' + parts[1];
+                            const monthsMap = {
+                                'jan': 0, 'fev': 1, 'mar': 2, 'abr': 3, 'mai': 4, 'jun': 5,
+                                'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
+                            };
+                            if (monthsMap[mStr] !== undefined) {
+                                capacity = getMonthlyCapacity(parseInt(yStr), monthsMap[mStr]);
+                            }
+                        }
+                    } catch (e) { }
+
+                    meta.data.forEach((bar) => {
+                        if (!bar.base) return;
+
+                        const xLeft = bar.x - bar.width / 2;
+                        const xRight = bar.x + bar.width / 2;
+                        const yPos = y.getPixelForValue(capacity);
+
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.strokeStyle = '#DC2626';
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([4, 3]);
+                        ctx.moveTo(xLeft - 3, yPos);
+                        ctx.lineTo(xRight + 3, yPos);
+                        ctx.stroke();
+                        ctx.restore();
+                    });
+                });
+            }
+        };
+
         const monthColors = [
-            '#4ECDC4', '#FF6B6B', '#FFD166', '#0C9DE4', '#9966FF', '#C9CBCF',
-            '#118AB2', '#06D6A0', '#EF476F', '#FFD166', '#073B4C'
+            '#0F172A', '#334155', '#475569', '#64748B',
+            '#94A3B8', '#0EA5E9', '#0284C7', '#0369A1'
         ];
 
-        // Criar um dataset para cada mês encontrado
         let colorIdx = 0;
         respData.monthKeys.forEach((mKey, idx) => {
-            const mLabel = respData.labels[idx]; // Label legível (e.g. "Jan/24")
-
-            // Dados para este mês, para cada pessoa
+            const mLabel = respData.labels[idx];
             const mData = [];
+
             respData.persons.forEach(p => {
-                const key = `${mKey}| ${p} `;
+                const key = `${mKey}|${p}`;
                 mData.push(respData.values[key] || 0);
             });
 
-            // Dataset do Mês
-            const ds = {
+            datasets.push({
                 label: mLabel,
                 data: mData,
                 backgroundColor: monthColors[colorIdx % monthColors.length],
-                borderRadius: 4,
-                stack: 'monthlyGroup', // Mesmo stack group allow side-by-side? No, undefined stack means side-by-side
-                // Se definirmos stack diferente para cada mês, ficam side-by-side?
-                // Chart.js grouped bars: datasets with different stack IDs or no stack ID are placed side-by-side.
-                // Mas aqui queremos agrupados POR PESSOA. 
-                // Default bar chart: datasets are side-by-side for each category (Person).
-                barPercentage: 0.8,
-                categoryPercentage: 0.8
-            };
-
-            // Remover propriedade 'stack' para garantir side-by-side
-            delete ds.stack;
-
-            datasets.push(ds);
+                borderRadius: 3,
+                borderWidth: 0,
+                barPercentage: 0.7,
+                categoryPercentage: 0.85
+            });
             colorIdx++;
         });
 
-        // Adicionar Linha de Capacidade (176h)
-        // Como é grouped bar, a linha se aplica a cada barra individualmente (Mês). 
-        // Capacidade MENSAL é 176h.
-        // Precisamos de um dataset 'line' que cubra todas as pessoas.
-        // O array deve ter o tamanho de 'labels' (pessoas).
-        const capacityData = new Array(labels.length).fill(CAPACITY);
-
-        datasets.push({
-            label: 'Capacidade (176h)',
-            data: capacityData,
-            type: 'line',
-            borderColor: '#FF0000', // Vermelho para destaque
-            borderWidth: 2,
-            pointStyle: false,
-            fill: false,
-            datalabels: { display: false },
-            order: 0 // Draw on top
-        });
-
-        // Configuração sobrescreve a inicial
         config = {
             type: 'bar',
-            data: {
-                labels: labels,
-                datasets: datasets
-            },
+            data: { labels: labels, datasets: datasets },
+            plugins: [capacityOverlayPlugin],
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: {
+                    mode: 'nearest',
+                    axis: 'x',
+                    intersect: false,
+                },
                 scales: {
                     y: {
                         beginAtZero: true,
-                        grid: { color: 'rgba(0,0,0,0.08)' },
+                        grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false },
                         ticks: {
+                            font: { size: 11, family: 'Inter, system-ui' },
+                            color: '#64748B',
                             callback: function (value) { return value + 'h'; }
-                        }
+                        },
+                        border: { display: false }
                     },
                     x: {
-                        grid: { display: false }
+                        grid: { display: false },
+                        ticks: {
+                            font: { size: 12, weight: '600', family: 'Inter, system-ui' },
+                            color: '#334155'
+                        },
+                        border: { display: false }
                     }
                 },
                 plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        align: 'end',
+                        labels: {
+                            usePointStyle: true,
+                            font: { size: 11, weight: '500' }
+                        }
+                    },
                     tooltip: {
-                        mode: 'index',
-                        intersect: false,
+                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                        padding: 12,
                         callbacks: {
+                            title: (items) => `${items[0].label} - ${items[0].dataset.label}`,
                             label: function (context) {
-                                if (context.dataset.type === 'line') return null;
-                                let label = context.dataset.label || '';
-                                if (label) label += ': ';
-                                if (context.parsed.y !== null) label += Math.round(context.parsed.y) + 'h';
-                                return label;
+                                const val = context.parsed.y || 0;
+                                const monthName = context.dataset.label;
+
+                                let capacity = 176;
+                                try {
+                                    const parts = monthName.split('/');
+                                    if (parts.length === 2) {
+                                        const mStr = parts[0].toLowerCase();
+                                        const yStr = '20' + parts[1];
+                                        const monthsMap = {
+                                            'jan': 0, 'fev': 1, 'mar': 2, 'abr': 3, 'mai': 4, 'jun': 5,
+                                            'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
+                                        };
+                                        if (monthsMap[mStr] !== undefined) {
+                                            capacity = getMonthlyCapacity(parseInt(yStr), monthsMap[mStr]);
+                                        }
+                                    }
+                                } catch (e) { }
+
+                                const percent = capacity > 0 ? Math.round((val / capacity) * 100) : 0;
+                                const diff = Math.round(capacity - val);
+
+                                return [
+                                    `Trabalhado: ${Math.round(val)}h`,
+                                    `Capacidade Real: ${capacity}h`,
+                                    `Ocupação: ${percent}%`,
+                                    diff >= 0 ? `Disponível: ${diff}h` : `Excedente: ${Math.abs(diff)}h`
+                                ];
                             }
                         }
                     },
                     datalabels: {
-                        display: function (context) {
-                            return context.dataset.type !== 'line' && context.dataset.data[context.dataIndex] > 5;
-                        },
-                        color: '#fff', // Branco dentro da barra? Ou fora?
-                        anchor: 'end',
-                        align: 'top',
-                        offset: -4, // Dentro do topo
+                        display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 15,
+                        color: '#fff',
+                        anchor: 'center',
+                        align: 'center',
                         formatter: (val) => Math.round(val),
-                        font: { weight: 'bold', size: 10 },
-                        textStrokeColor: 'rgba(0,0,0,0.5)',
-                        textStrokeWidth: 2
-
+                        font: { weight: '600', size: 10 }
                     }
                 }
             }
         };
-
-        // Sobrepor config construída
-        overrideConfig = true; // Flag to use this config directly
+        overrideConfig = true;
 
     } else {
         // --- VISÃO CONSOLIDADA (Temporal - Soma de Todas as Pessoas) ---
@@ -662,13 +772,21 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
             let monthTotal = 0;
             // Somar todas as pessoas neste mês
             respData.persons.forEach(p => {
-                const key = `${m}| ${p} `;
+                const key = `${m}|${p}`; // CORRIGIDO: Removido espaços extras na chave
                 monthTotal += (respData.values[key] || 0);
             });
 
-            // Calcular capacidade total para este mês (176h × número de pessoas)
+            // Calcular capacidade total dinâmica para este mês
+            let singleCapacity = 176;
+            const parts = m.split('-');
+            if (parts.length === 2) {
+                const year = parseInt(parts[0]);
+                const monthIndex = parseInt(parts[1]) - 1; // 0-indexed
+                singleCapacity = getMonthlyCapacity(year, monthIndex);
+            }
+
             const peopleCount = respData.persons.length;
-            const monthCapacity = CAPACITY * peopleCount;
+            const monthCapacity = singleCapacity * peopleCount;
 
             const worked = Math.min(monthTotal, monthCapacity);
             const remaining = Math.max(0, monthCapacity - monthTotal);
@@ -677,6 +795,7 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
             dataWorked.push(worked);
             dataRemaining.push(remaining);
             dataOvertime.push(overtime);
+            dataCapacity.push(monthCapacity);
         });
     }
 
@@ -790,12 +909,13 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
                                 const worked = dataWorked[idx] || 0;
                                 const overtime = dataOvertime[idx] || 0;
                                 const remaining = dataRemaining[idx] || 0;
+                                const capacity = dataCapacity[idx] || 176;
                                 const total = worked + overtime;
 
                                 let lines = [];
                                 lines.push('─────────────');
                                 lines.push(`Total: ${Math.round(total)}h`);
-                                lines.push(`Capacidade: 176h`);
+                                lines.push(`Capacidade: ${Math.round(capacity)}h`);
                                 if (remaining > 0) {
                                     lines.push(`Disponível: ${Math.round(remaining)}h`);
                                 }
@@ -1035,51 +1155,79 @@ function processResponsibleData(data, metric, filterOwner = null) {
     const uniquePersonsPerMonth = {};
 
     data.forEach(d => {
-        const dateRef = d.dateEnd || d.date || new Date();
-        const y = dateRef.getFullYear();
-        const m = dateRef.getMonth() + 1;
-        const monthKey = `${y} -${String(m).padStart(2, '0')} `;
-        const label = dateRef.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+        // 1. TENTAR DADOS GRANULARES (LANCAMENTOS) - Fonte da Verdade CSV2
+        const granularData = d.raw && d.raw['_csv2Details'] && d.raw['_csv2Details'].lancamentos;
 
-        monthMap.set(monthKey, label);
+        if (granularData && Array.isArray(granularData) && granularData.length > 0) {
+            granularData.forEach(entry => {
+                // Filtro de Responsável
+                if (filterOwner && entry.person !== filterOwner) return;
 
-        d.assignments.forEach(assign => {
-            if (!assign.person) return;
-            if (filterOwner && assign.person !== filterOwner) return;
+                // Filtro de Métrica
+                let val = entry.hours;
+                if (metric === 'hoursAdm' && entry.type !== 'adm') val = 0;
+                else if (metric === 'hoursProject' && entry.type !== 'project') val = 0;
 
-            const person = assign.person;
-            personSet.add(person);
+                if (val <= 0) return;
 
-            let val = 0;
-            if (metric === 'hours') val = assign.hoursTotal;
-            else if (metric === 'hoursAdm') val = assign.hoursAdm;
-            else if (metric === 'hoursProject') val = assign.hoursProject;
-            else val = assign.hoursTotal;
+                const person = entry.person;
+                const dateObj = parseDate(entry.date);
+                if (!dateObj) return;
 
-            const key = `${monthKey}| ${person} `;
-            values[key] = (values[key] || 0) + val;
+                // Chave de Mês (YYYY-MM)
+                const y = dateObj.getFullYear();
+                const m = dateObj.getMonth() + 1;
+                const monthKey = `${y}-${String(m).padStart(2, '0')}`;
 
-            monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + val;
+                // Label estavel (Jan/24)
+                const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+                let label = `${monthNames[m - 1]}/${String(y).slice(2)}`;
+                // label = label.charAt(0).toUpperCase() + label.slice(1); // Já está Capitalizado
 
-            if (!uniquePersonsPerMonth[monthKey]) {
-                uniquePersonsPerMonth[monthKey] = new Set();
-            }
-            if (assign.role !== 'Sócio' && assign.role !== 'Gerente') {
+                monthMap.set(monthKey, label);
+                personSet.add(person);
+
+                // Acumular Valores
+                const key = `${monthKey}|${person}`;
+                values[key] = (values[key] || 0) + val;
+                monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + val;
+
+                if (!uniquePersonsPerMonth[monthKey]) uniquePersonsPerMonth[monthKey] = new Set();
                 uniquePersonsPerMonth[monthKey].add(person);
-            }
-        });
+            });
+        }
+        else {
+            // 2. FALLBACK (Lógica Legada baseada em Data Fim/Assignments)
+            const dateRef = d.dateEnd || d.date || new Date();
+            const y = dateRef.getFullYear();
+            const m = dateRef.getMonth() + 1;
+            const monthKey = `${y}-${String(m).padStart(2, '0')}`;
 
-        // Fallback
-        if (d.assignments.length === 0 && d.owner) {
-            if (filterOwner && d.owner !== filterOwner) return;
-            const person = d.owner;
-            personSet.add(person);
-            const val = getMetricValue(d, metric);
-            const key = `${monthKey}| ${person} `;
-            values[key] = (values[key] || 0) + val;
-            monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + val;
-            if (!uniquePersonsPerMonth[monthKey]) uniquePersonsPerMonth[monthKey] = new Set();
-            uniquePersonsPerMonth[monthKey].add(person);
+            const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+            let label = `${monthNames[m - 1]}/${String(y).slice(2)}`;
+
+            monthMap.set(monthKey, label);
+
+            d.assignments.forEach(assign => {
+                if (!assign.person) return;
+                if (filterOwner && assign.person !== filterOwner) return;
+
+                const person = assign.person;
+                personSet.add(person);
+
+                let val = 0;
+                if (metric === 'hours') val = assign.hoursTotal;
+                else if (metric === 'hoursAdm') val = assign.hoursAdm;
+                else if (metric === 'hoursProject') val = assign.hoursProject;
+                else val = assign.hoursTotal;
+
+                const key = `${monthKey}|${person}`;
+                values[key] = (values[key] || 0) + val;
+                monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + val;
+
+                if (!uniquePersonsPerMonth[monthKey]) uniquePersonsPerMonth[monthKey] = new Set();
+                uniquePersonsPerMonth[monthKey].add(person);
+            });
         }
     });
 
@@ -1088,8 +1236,9 @@ function processResponsibleData(data, metric, filterOwner = null) {
 
     const monthlyCapacity = {};
     sortedMonthKeys.forEach(k => {
-        const count = uniquePersonsPerMonth[k] ? uniquePersonsPerMonth[k].size : 0;
-        monthlyCapacity[k] = count * 176;
+        // Capacidade é fixa 176h independente do número de pessoas na visão mensal individual
+        // Mas para a linha de capacidade, queremos 176h plano.
+        monthlyCapacity[k] = 176;
     });
 
     return {
