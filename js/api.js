@@ -24,6 +24,21 @@ const api = {
         }
     },
 
+    async getApontamentos() {
+        try {
+            const resp = await fetch(`${API_BASE_URL}/apontamentos`);
+            if (!resp.ok) throw new Error(`Erro na API: ${resp.status}`);
+            const data = await resp.json();
+            // Esperando { tasks: [...] } ou apenas [...]
+            // Ajuste com base na resposta real. Assumindo lista ou objeto com chave tasks.
+            return Array.isArray(data) ? data : (data.tasks || []);
+        } catch (e) {
+            console.error("Falha ao as Datas e horas trabalhadas:", e);
+            throw e;
+        }
+    },
+    
+
     /**
      * Atualiza uma tarefa específica (ex: mudança de status)
      * PUT /api/tasks/:id
