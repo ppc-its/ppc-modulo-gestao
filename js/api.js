@@ -19,7 +19,7 @@ const api = {
             // Ajuste com base na resposta real. Assumindo lista ou objeto com chave tasks.
             return Array.isArray(data) ? data : (data.tasks || []);
         } catch (e) {
-            console.error("Falha ao buscar tarefas:", e);
+            console.error("Falha ao trazer tarefas:", e);
             throw e;
         }
     },
@@ -37,7 +37,7 @@ const api = {
             throw e;
         }
     },
-    
+
 
     /**
      * Atualiza uma tarefa específica (ex: mudança de status)
