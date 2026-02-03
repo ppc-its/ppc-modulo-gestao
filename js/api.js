@@ -23,7 +23,7 @@ const api = {
             const resp = await fetch(`${API_BASE_URL}/apontamentos`);
             if (!resp.ok) throw new Error(`Erro na API: ${resp.status}`);
             const apontamentos = await resp.json();
-            return Array.isArray(apontamentos) ? apontamentos : (apontamentos.tasks || []);
+            return Array.isArray(apontamentos) ? apontamentos : (apontamentos.apontamentos || []);
         } catch (e) {
             console.error("Falha ao buscar apontamentos:", e);
             throw e;
@@ -72,31 +72,4 @@ const api = {
 // Expor globalmente
 window.api = api;
 
-/* =========================
-   INICIALIZAÇÃO AUTOMÁTICA
-   Aciona as APIs ao carregar a página
-   ========================= */
-
-async function initApp() {
-    console.log("Iniciando carregamento de dados...");
-    try {
-        // Promise.all executa ambas as chamadas simultaneamente
-        const [tarefas, apontamentos] = await Promise.all([
-            api.getTasks(),
-            api.getApontamentos()
-        ]);
-
-        console.log("✅ Tarefas carregadas:", tarefas);
-        console.log("✅ Apontamentos carregados:", apontamentos);
-
-        // Se você tiver uma função que desenha o Kanban ou a lista, chame-a aqui:
-        // exemplo: renderizarTela(tarefas, apontamentos);
-
-    } catch (error) {
-        console.error("❌ Erro na inicialização:", error);
-        alert("Não foi possível conectar ao servidor Flask.");
-    }
-}
-
-// Escuta o evento de carregamento do DOM para rodar a função
-document.addEventListener("DOMContentLoaded", initApp);
+// Inicialização automática removida. O controle agora é feito pelo app.js via init().

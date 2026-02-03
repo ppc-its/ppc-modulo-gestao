@@ -911,18 +911,50 @@ async function init() {
   loadFilters();
   bindEvents();
 
+  console.log("Iniciando carregamento de dados via API...");
   try {
-    const data = await api.getAllData();
-    tasks = normalizeTasks(data);
+    const [tasksRaw, apontamentosRaw] = await Promise.all([
+      api.getTasks(),
+      api.getApontamentos()
+    ]);
+
+    console.log(`[API] Recebidos ${tasksRaw.length} tarefas e ${apontamentosRaw.length} apontamentos`);
+
+    const merged = mergeData(tasksRaw, apontamentosRaw);
+    tasks = normalizeTasks(merged);
+
     setUpdatedMeta(new Date().toISOString());
     populatePeopleDropdown();
     render();
-    console.log("Inicialização via API concluída.", tasks.length, "tarefas.");
+    console.log("Inicialização concluída.", tasks.length, "tarefas renderizadas.");
   } catch (e) {
     console.error("Erro fatal ao carregar dados:", e);
     setBanner("Erro ao carregar dados do servidor. Verifique o console.", "error");
-    // Fallback para tarefas vazias ou sample se desejar
   }
+}
+
+function mergeData(tasksList, apontamentosList) {
+  if (!Array.isArray(tasksList)) return [];
+  if (!Array.isArray(apontamentosList)) return tasksList;
+
+  // Criar mapa de apontamentos por ID da demanda
+  // Assumindo que o apontamento tem um campo 'DemandaId' ou similar que bate com o ID da tarefa
+  const map = new Map();
+  apontamentosList.forEach(a => {
+    // Tenta encontrar o ID no apontamento. Ajuste o campo conforme o retorno real da API.
+    const key = String(a.DemandaId || a.demanda_id || a.id || "").trim();
+    if (key) map.set(key, a);
+  });
+
+  return tasksList.map(task => {
+    // Tenta identificar o ID da tarefa
+    const taskId = String(task.id || task.ID || task["ID"] || "").trim();
+    if (map.has(taskId)) {
+      // Anexa os detalhes do apontamento (CSV2) no objeto da tarefa para o normalizeRow usar
+      task._csv2Details = map.get(taskId);
+    }
+    return task;
+  });
 }
 
 /**
@@ -933,10 +965,7 @@ function normalizeTasks(list) {
   return list.map(t => {
     // Se parece com nosso objeto 'task' interno (tem id, título...), use-o.
     // Se parece com uma linha CSV raw, normalize-a.
-    // O backend pode retornar linhas Raw CSV ou objetos processados. 
-    // Assumindo que backend retorna uma lista de dicionários correspondendo às colunas CSV ou a estrutura interna.
-    // Vamos assumir que o backend retorna as linhas raw principalmente, similar à estrutura tasks.json.
-    if (t.raw) return t; // Já processado
+    if (t.raw && t.status) return t; // Já processado
     return normalizeRow(t);
   });
 }
