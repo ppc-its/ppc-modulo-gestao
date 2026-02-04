@@ -122,11 +122,13 @@ async function loadData() {
                 console.log("Dados carregados do LocalStorage (Sincronizado com Board)");
                 APP_DATA = processTasks(localTasks);
 
-                // Log de uso do CSV2
-                const csv2Count = APP_DATA.filter(t => t.hasCSV2Data).length;
-                if (csv2Count > 0) {
-                    console.log(`[Graphs] ${csv2Count}/${APP_DATA.length} tarefas usando dados do CSV2`);
-                }
+                /*
+                                // Log de uso do CSV2
+                                const csv2Count = APP_DATA.filter(t => t.hasCSV2Data).length;
+                                if (csv2Count > 0) {
+                                    console.log(`[Graphs] ${csv2Count}/${APP_DATA.length} tarefas usando dados do CSV2`);
+                                }
+                */
 
                 return; // Usa dados locais e pula API
             }
@@ -215,17 +217,19 @@ function processTasks(tasks) {
         };
     });
 
-    // Logging de Verificação de Volumetria
-    console.log(`[Graphs] Processamento concluído: ${processed.length} tarefas.`);
-    if (processed.length > 0) {
-        let totalH = 0, totalP = 0, totalA = 0;
-        processed.forEach(p => {
-            totalH += p.hours;
-            totalP += p.hoursProject;
-            totalA += p.hoursAdm;
-        });
-        console.log(`[Graphs] Volumetria Total (CSV2 Only): ${totalH.toFixed(1)}h (Projeto: ${totalP.toFixed(1)}h, ADM: ${totalA.toFixed(1)}h)`);
-    }
+    /*
+        // Logging de Verificação de Volumetria
+        console.log(`[Graphs] Processamento concluído: ${processed.length} tarefas.`);
+        if (processed.length > 0) {
+            let totalH = 0, totalP = 0, totalA = 0;
+            processed.forEach(p => {
+                totalH += p.hours;
+                totalP += p.hoursProject;
+                totalA += p.hoursAdm;
+            });
+            console.log(`[Graphs] Volumetria Total (CSV2 Only): ${totalH.toFixed(1)}h (Projeto: ${totalP.toFixed(1)}h, ADM: ${totalA.toFixed(1)}h)`);
+        }
+    */
 
     return processed;
 }

@@ -22,8 +22,8 @@ const TYPE_ORDER = [
 
 const LOCAL_STORAGE_KEY = "ppc_task_board_data_v1";
 const LOCAL_FILTERS_KEY = "ppc_task_board_filters_v1";
-const LOCAL_CSV1_KEY = "ppc_csv1_data_v1";
-const LOCAL_CSV2_KEY = "ppc_csv2_data_v1";
+// const LOCAL_CSV1_KEY = "ppc_csv1_data_v1";
+// const LOCAL_CSV2_KEY = "ppc_csv2_data_v1";
 
 function $(sel, el = document) { return el.querySelector(sel); }
 function $$(sel, el = document) { return [...el.querySelectorAll(sel)]; }
@@ -99,30 +99,49 @@ function normalizeRow(row) {
   const demandType = detectDemandType(row);
   const status = normalizeStatus(row["Status"]);
 
-  const responsible = safeStr(row["Responsável Demanda"]); 
+  const apontamentos = row._apontamentos || [];
+
+  let hoursTotal = 0;
+  let hoursAdm = 0;
+  const participantsMap = new Map();
+
+  apontamentos.forEach(a => {
+    const h = toNumber(a.Horas || a.horas || 0);
+    hoursTotal += h;
+
+    const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora).toLowerCase();
+    if (tipo.includes("adm")) hoursAdm += h;
+
+    const name = safeStr(a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador || a.NomeColaborador || a.Colaborador || a.colaborador);
+    if (name) {
+      if (!participantsMap.has(name)) {
+        participantsMap.set(name, { name, hours: 0, roles: new Set() });
+      }
+      const p = participantsMap.get(name);
+      p.hours += h;
+      const role = safeStr(a.Responsabilidades || a.responsabilidade || a.responsabilidades);
+      if (role) p.roles.add(role);
+    }
+  });
+
+  const participants = [...participantsMap.values()].map(p => ({
+    name: p.name,
+    hours: p.hours,
+    role: [...p.roles].join("/")
+  }));
+
+  const responsible = participants.map(p => p.name).join(", ") || safeStr(row["Responsável Demanda"]) || "Sem responsável";
+  const hoursProject = Math.max(0, hoursTotal - hoursAdm);
+
   const client = safeStr(row["Nome Cliente"]) || safeStr(row["Contato Cliente"]) || "";
-  
+
   const scopeSystem = safeStr(row["Sistema em Escopo"]);
   const prpId = safeStr(row["ID - PRP (RentSoft)"]);
-  
+
   const titleDetail = scopeSystem ? scopeSystem : (safeStr(row["Detalhe da demanda (Escopo)"]).slice(0, 48) || prpId || "Demanda");
 
-  const csv2Details = row["_csv2Details"];
-  let hoursAdm, hoursTotal, hoursProject, start, end;
-
-  if (csv2Details) {
-    hoursAdm = csv2Details.horasAdmTotal || 0;
-    hoursTotal = csv2Details.horasTotal || 0;
-    hoursProject = csv2Details.horasProjetoTotal || 0;
-    start = csv2Details.dataInicio || safeStr(row["Data Início (Previsão)"]);
-    end = csv2Details.dataFim || safeStr(row["Data Conclusão (Previsão)"]);
-  } else {
-    hoursAdm = toNumber(row["Horas ADM"]); // Se a API não mandar 'Horas ADM', retornará 0
-    hoursTotal = toNumber(row["Horas"]);   // Chave exata vinda da API
-    hoursProject = Math.max(0, hoursTotal - hoursAdm); 
-    start = safeStr(row["Data Início (Previsão)"]);
-    end = safeStr(row["Data Conclusão (Previsão)"]);
-  }
+  const start = safeStr(row["Data Início (Previsão)"]);
+  const end = safeStr(row["Data Conclusão (Previsão)"]);
 
   const id = safeStr(row["id"]) || prpId || crypto.randomUUID();
 
@@ -134,8 +153,10 @@ function normalizeRow(row) {
     subtitle: titleDetail,
     hoursProject,
     hoursTotal,
+    hoursAdm,
     responsible,
-    raw: row, // Mantemos o objeto original da API para referência
+    participants,
+    raw: row,
     dates: { start, end }
   };
 }
@@ -144,8 +165,10 @@ function normalizeRow(row) {
 
 /* -------- Estado -------- */
 let tasks = [];
+/*
 let csv1Data = null; // CSV Principal (com coluna ID)
 let csv2Data = null; // CSV Complementar (com coluna DemandaId)
+*/
 let filters = {
   person: "",
   demandType: "",
@@ -220,21 +243,7 @@ function render() {
   const filtered = tasks.filter(t => {
     if (filters.person) {
       const p = filters.person.toLowerCase();
-      // Verificar se pessoa existe em qualquer um dos papéis alvo
-      const fields = [
-        "Responsável Demanda",
-        "Trainee do Projeto",
-        "Responsável Cyber",
-        "Responsável Intelidados",
-        "Responsável Desenvolvimento"
-      ];
-      // Correspondência parcial (includes)
-      const match = fields.some(key => {
-        const val = safeStr(t.raw?.[key]).toLowerCase();
-        return val.includes(p);
-      });
-
-      if (!match) return false;
+      if (!t.responsible.toLowerCase().includes(p)) return false;
     }
     if (filters.demandType) {
       if (t.demandType !== filters.demandType) return false;
@@ -345,26 +354,38 @@ function renderTaskCard(t) {
   el.className = "task";
   el.draggable = true;
   el.addEventListener("dragstart", (e) => handleDragStart(e, t));
-  
-  const avatar = initials(t.responsible);
+
+  const avatarStr = t.participants && t.participants.length > 0
+    ? t.participants.map(p => initials(p.name)).slice(0, 2).join("+")
+    : initials(t.responsible);
+
   const projHours = t.hoursProject || 0;
   const admHours = t.hoursAdm || 0;
   const totalHours = t.hoursTotal || 0;
+
+  const participantsHtml = (t.participants || []).map(p => `
+    <div style="display:flex; justify-content:space-between; font-size:0.73rem; color:#333; margin-top:2px;">
+      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;" title="${escapeHTML(p.name)}">👤 ${escapeHTML(p.name)}</span>
+      <span style="font-weight:bold; margin-left:6px; background:#f0f0f0; padding:0 4px; border-radius:3px;">${p.hours.toFixed(1)}h</span>
+    </div>
+    <div style="font-size:0.65rem; color:#888; margin-left:14px; margin-bottom:4px; line-height:1.1;">${escapeHTML(p.role)}</div>
+  `).join("");
 
   el.innerHTML = `
     <div class="top">
       <div style="flex:1; min-width:0;">
         <div class="title" title="${escapeHTML(t.title)}">${escapeHTML(t.title)}</div>
-        <div class="sub">${escapeHTML(t.subtitle)}</div>
-        <div class="responsible-label">👤 ${escapeHTML(t.responsible || 'Sem responsável')}</div>
+        <div class="sub" style="margin-bottom:8px;">${escapeHTML(t.subtitle)}</div>
+        <div class="participants-list">
+          ${participantsHtml || `<div class="responsible-label">👤 ${escapeHTML(t.responsible || 'Sem responsável')}</div>`}
+        </div>
       </div>
-      <div class="avatar" title="${escapeHTML(t.responsible)}">${escapeHTML(avatar)}</div>
+      <div class="avatar" style="font-size:0.7rem;" title="${escapeHTML(t.responsible)}">${escapeHTML(avatarStr)}</div>
     </div>
-    <div class="hours">
+    <div class="hours" style="margin-top:8px;">
       <div class="tag">${t.demandType}</div>
-      ${admHours > 0 ? `<div class="tag" style="background:#e0f7fa; color:#006064;">${admHours.toFixed(0)}h ADM</div>` : ''}
-      ${projHours > 0 ? `<div class="tag" style="background:#fff3e0; color:#e65100;">${projHours.toFixed(0)}h Proj</div>` : ''}
-      <div class="tag" style="font-weight:bold; background:#eee;">${totalHours.toFixed(0)}h Tot</div>
+      ${admHours > 0 ? `<div class="tag" style="background:#e0f7fa; color:#006064;">${admHours.toFixed(1)}h ADM</div>` : ''}
+      <div class="tag" style="font-weight:bold; background:#eee;">${totalHours.toFixed(1)}h Tot</div>
     </div>
   `;
 
@@ -384,7 +405,7 @@ async function openModal(task) {
   const kvs = [
     ["Status", task.status],
     ["Tipo de demanda", task.demandType],
-    ["Responsável", task.responsible || "—"],
+    ["Responsáveis", task.responsible || "—"],
     ["Horas ADM (geral)", `${(task.hoursAdm || 0).toFixed(0)}h`],
     ["Horas (total)", `${(task.hoursTotal || 0).toFixed(0)}h`],
     ["Cliente", safeStr(task.raw?.["Nome Cliente"]) || "—"],
@@ -398,21 +419,7 @@ async function openModal(task) {
     ["Aprovação", safeStr(task.raw?.["Aprovação Demanda"]) || "—"],
   ];
 
-  const csv2Details = task.raw?.["_csv2Details"];
-
-  if (csv2Details && csv2Details.colaboradores && csv2Details.colaboradores.length > 0) {
-    csv2Details.colaboradores.forEach(colab => {
-      kvs.push([`Responsável (${colab.responsabilidades})`, colab.colaborador]);
-      if (colab.horasProjeto > 0) kvs.push([`Horas Projeto (${colab.responsabilidades})`, `${colab.horasProjeto.toFixed(0)}h`]);
-      if (colab.horasAdm > 0) kvs.push([`Horas ADM (${colab.responsabilidades})`, `${colab.horasAdm.toFixed(0)}h`]);
-    });
-  } else {
-    const oldFields = ["Responsável Demanda", "Responsável Cyber", "Responsável Intelidados", "Trainee do Projeto", "Responsável Desenvolvimento"];
-    oldFields.forEach(key => {
-      const val = safeStr(task.raw?.[key]);
-      if (val) kvs.push([key, val]);
-    });
-  }
+  const apontamentos = task.raw?._apontamentos || [];
 
   const grid = $("#modalGrid");
   grid.innerHTML = "";
@@ -423,26 +430,17 @@ async function openModal(task) {
     grid.appendChild(d);
   });
 
-  if (csv2Details && csv2Details.colaboradores && csv2Details.colaboradores.length > 0) {
+  if (apontamentos.length > 0) {
     const detailsSection = document.createElement("div");
     detailsSection.style.marginTop = "20px";
     detailsSection.style.borderTop = "1px solid #e0e0e0";
     detailsSection.style.paddingTop = "20px";
 
     const title = document.createElement("h3");
-    title.textContent = "📊 Detalhamento de Horas por Colaborador (CSV2)";
+    title.textContent = "📊 Detalhamento de Apontamentos (API)";
     title.style.marginBottom = "10px";
     title.style.fontSize = "1.1rem";
     detailsSection.appendChild(title);
-
-    if (csv2Details.dataInicio && csv2Details.dataFim) {
-      const periodo = document.createElement("p");
-      periodo.textContent = `Período: ${csv2Details.dataInicio} → ${csv2Details.dataFim}`;
-      periodo.style.marginBottom = "10px";
-      periodo.style.fontSize = "0.9rem";
-      periodo.style.color = "#666";
-      detailsSection.appendChild(periodo);
-    }
 
     const table = document.createElement("table");
     table.style.width = "100%";
@@ -452,26 +450,36 @@ async function openModal(task) {
     const thead = document.createElement("thead");
     thead.innerHTML = `
       <tr style="background: #f5f5f5; border-bottom: 2px solid #ddd;">
-        <th style="padding: 8px; text-align: left;">Colaborador</th>
+        <th style="padding: 8px; text-align: left;">Data</th>
+        <th style="padding: 8px; text-align: left;">Nome Colaborador</th>
         <th style="padding: 8px; text-align: left;">Responsabilidade</th>
-        <th style="padding: 8px; text-align: right;">Horas ADM</th>
-        <th style="padding: 8px; text-align: right;">Horas Projeto</th>
-        <th style="padding: 8px; text-align: right;">Total</th>
+        <th style="padding: 8px; text-align: left;">Tipo</th>
+        <th style="padding: 8px; text-align: right;">Horas</th>
       </tr>
     `;
     table.appendChild(thead);
 
     const tbody = document.createElement("tbody");
-    csv2Details.colaboradores.forEach((colab, idx) => {
+    let totalH = 0;
+    apontamentos.forEach((a, idx) => {
       const tr = document.createElement("tr");
       tr.style.borderBottom = "1px solid #eee";
       if (idx % 2 === 0) tr.style.background = "#fafafa";
+
+      const h = toNumber(a.Horas || a.horas || 0);
+      totalH += h;
+
+      // Priorizar 'Nome colaborador' (c minúsculo) conforme indicação do usuário
+      const nomeColab = a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador || a.NomeColaborador || a.Colaborador || a.colaborador || "—";
+      const resp = a.Responsabilidades || a.responsabilidade || "—";
+      const tipo = a["Tipo da hora"] || a.tipo_hora || "—";
+
       tr.innerHTML = `
-        <td style="padding: 8px;">${escapeHTML(colab.colaborador)}</td>
-        <td style="padding: 8px;">${escapeHTML(colab.responsabilidades)}</td>
-        <td style="padding: 8px; text-align: right;">${colab.horasAdm.toFixed(0)}h</td>
-        <td style="padding: 8px; text-align: right;">${colab.horasProjeto.toFixed(0)}h</td>
-        <td style="padding: 8px; text-align: right; font-weight: bold;">${colab.horasTotal.toFixed(0)}h</td>
+        <td style="padding: 8px;">${escapeHTML(a.Data || a.data || "—")}</td>
+        <td style="padding: 8px;">${escapeHTML(nomeColab)}</td>
+        <td style="padding: 8px;">${escapeHTML(resp)}</td>
+        <td style="padding: 8px;">${escapeHTML(tipo)}</td>
+        <td style="padding: 8px; text-align: right; font-weight: bold;">${h.toFixed(1)}h</td>
       `;
       tbody.appendChild(tr);
     });
@@ -480,10 +488,8 @@ async function openModal(task) {
     const tfoot = document.createElement("tfoot");
     tfoot.innerHTML = `
       <tr style="background: #e8f4f8; border-top: 2px solid #ddd; font-weight: bold;">
-        <td colspan="2" style="padding: 8px;">TOTAL</td>
-        <td style="padding: 8px; text-align: right;">${csv2Details.horasAdmTotal.toFixed(0)}h</td>
-        <td style="padding: 8px; text-align: right;">${csv2Details.horasProjetoTotal.toFixed(0)}h</td>
-        <td style="padding: 8px; text-align: right;">${csv2Details.horasTotal.toFixed(0)}h</td>
+        <td colspan="4" style="padding: 8px;">TOTAL</td>
+        <td style="padding: 8px; text-align: right;">${totalH.toFixed(1)}h</td>
       </tr>
     `;
     table.appendChild(tfoot);
@@ -551,6 +557,7 @@ function saveToLocalStorage(taskList) {
 }
 
 /* -------- Dual CSV Management -------- */
+/*
 function saveCsv1ToLocalStorage(data) {
   localStorage.setItem(LOCAL_CSV1_KEY, JSON.stringify({
     updatedAt: new Date().toISOString(),
@@ -586,9 +593,11 @@ function loadCsv2FromLocalStorage() {
     return null;
   }
 }
+*/
 
 // Funções de CSV removidas
 
+/*
 function updateCsvStatus() {
   const statusEl = $("#csvStatus");
   if (!statusEl) return;
@@ -598,6 +607,7 @@ function updateCsvStatus() {
 
   statusEl.textContent = `CSV Principal: ${csv1Status} | CSV Complementar: ${csv2Status}`;
 }
+*/
 
 function setUpdatedMeta(tsISO) {
   const d = tsISO ? new Date(tsISO) : new Date();
@@ -605,20 +615,11 @@ function setUpdatedMeta(tsISO) {
 }
 
 function populatePeopleDropdown() {
-  const fields = [
-    "Responsável Demanda",
-    "Trainee do Projeto",
-    "Responsável Cyber",
-    "Responsável Intelidados",
-    "Responsável Desenvolvimento"
-  ];
-
   const people = new Set();
   tasks.forEach(t => {
-    fields.forEach(f => {
-      const val = safeStr(t.raw?.[f]);
-      if (val) people.add(val);
-    });
+    if (t.responsible && t.responsible !== "Sem responsável") {
+      t.responsible.split(", ").forEach(p => people.add(p.trim()));
+    }
   });
 
   const sorted = [...people].sort((a, b) => a.localeCompare(b));
@@ -688,145 +689,156 @@ function bindEvents() {
     render();
   });
 
-  // --- Upload de CSV Duplo ---
-  const btnLoadCsv1 = $("#btnLoadCsv1");
-  const fileInput1 = $("#csvFile1");
-  const btnLoadCsv2 = $("#btnLoadCsv2");
-  const fileInput2 = $("#csvFile2");
-
-  // Handler para CSV1 (Principal - com coluna ID)
-  if (btnLoadCsv1 && fileInput1) {
-    btnLoadCsv1.addEventListener("click", () => fileInput1.click());
-
-    fileInput1.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        const text = evt.target.result;
-        try {
-          const rawData = parseCSV(text);
-          csv1Data = rawData;
-          saveCsv1ToLocalStorage(rawData);
-
-          console.log(`[CSV1] Loaded ${rawData.length} records`);
-
-          // Mesclar com CSV2 se disponível
-          const mergedData = mergeCsvData(csv1Data, csv2Data);
-          tasks = normalizeTasks(mergedData);
-
-          // Salvar tarefas mescladas
-          saveToLocalStorage(tasks);
-
-          // Atualizar UI
-          setUpdatedMeta(new Date().toISOString());
-          populatePeopleDropdown();
-          syncControls();
-          render();
-          updateCsvStatus();
-
-          setBanner("CSV Principal carregado com sucesso! " + (csv2Data ? "Dados mesclados com CSV Complementar." : "Aguardando CSV Complementar para mesclar."), "success");
-        } catch (err) {
-          console.error(err);
-          alert("Erro ao ler CSV Principal: " + err.message);
-        }
-      };
-      reader.readAsText(file);
-      e.target.value = "";
-    });
-  }
-
-  // Handler para CSV2 (Complementar - com coluna DemandaId)
-  if (btnLoadCsv2 && fileInput2) {
-    btnLoadCsv2.addEventListener("click", () => fileInput2.click());
-
-    fileInput2.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        const text = evt.target.result;
-        try {
-          const rawData = parseCSV(text);
-          csv2Data = rawData;
-          saveCsv2ToLocalStorage(rawData);
-
-          console.log(`[CSV2] Loaded ${rawData.length} records`);
-
-          // Mesclar com CSV1 se disponível
-          if (csv1Data) {
+  /*
+    // --- Upload de CSV Duplo ---
+    const btnLoadCsv1 = $("#btnLoadCsv1");
+    const fileInput1 = $("#csvFile1");
+    const btnLoadCsv2 = $("#btnLoadCsv2");
+    const fileInput2 = $("#csvFile2");
+  
+    // Handler para CSV1 (Principal - com coluna ID)
+    if (btnLoadCsv1 && fileInput1) {
+      btnLoadCsv1.addEventListener("click", () => fileInput1.click());
+  
+      fileInput1.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+  
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          const text = evt.target.result;
+          try {
+            const rawData = parseCSV(text);
+            csv1Data = rawData;
+            saveCsv1ToLocalStorage(rawData);
+  
+            console.log(`[CSV1] Loaded ${rawData.length} records`);
+  
+            // Mesclar com CSV2 se disponível
             const mergedData = mergeCsvData(csv1Data, csv2Data);
             tasks = normalizeTasks(mergedData);
-
+  
             // Salvar tarefas mescladas
             saveToLocalStorage(tasks);
-
+  
             // Atualizar UI
             setUpdatedMeta(new Date().toISOString());
             populatePeopleDropdown();
             syncControls();
             render();
             updateCsvStatus();
-
-            setBanner("CSV Complementar carregado e mesclado com sucesso!", "success");
-          } else {
-            updateCsvStatus();
-            setBanner("CSV Complementar carregado. Aguardando CSV Principal para mesclar.", "info");
+  
+            setBanner("CSV Principal carregado com sucesso! " + (csv2Data ? "Dados mesclados com CSV Complementar." : "Aguardando CSV Complementar para mesclar."), "success");
+          } catch (err) {
+            console.error(err);
+            alert("Erro ao ler CSV Principal: " + err.message);
           }
-        } catch (err) {
-          console.error(err);
-          alert("Erro ao ler CSV Complementar: " + err.message);
-        }
-      };
-      reader.readAsText(file);
-      e.target.value = "";
-    });
-  }
+        };
+        reader.readAsText(file);
+        e.target.value = "";
+      });
+    }
+  
+    // Handler para CSV2 (Complementar - com coluna DemandaId)
+    if (btnLoadCsv2 && fileInput2) {
+      btnLoadCsv2.addEventListener("click", () => fileInput2.click());
+  
+      fileInput2.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+  
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          const text = evt.target.result;
+          try {
+            const rawData = parseCSV(text);
+            csv2Data = rawData;
+            saveCsv2ToLocalStorage(rawData);
+  
+            console.log(`[CSV2] Loaded ${rawData.length} records`);
+  
+            // Mesclar com CSV1 se disponível
+            if (csv1Data) {
+              const mergedData = mergeCsvData(csv1Data, csv2Data);
+              tasks = normalizeTasks(mergedData);
+  
+              // Salvar tarefas mescladas
+              saveToLocalStorage(tasks);
+  
+              // Atualizar UI
+              setUpdatedMeta(new Date().toISOString());
+              populatePeopleDropdown();
+              syncControls();
+              render();
+              updateCsvStatus();
+  
+              setBanner("CSV Complementar carregado e mesclado com sucesso!", "success");
+            } else {
+              updateCsvStatus();
+              setBanner("CSV Complementar carregado. Aguardando CSV Principal para mesclar.", "info");
+            }
+          } catch (err) {
+            console.error(err);
+            alert("Erro ao ler CSV Complementar: " + err.message);
+          }
+        };
+        reader.readAsText(file);
+        e.target.value = "";
+      });
+    }
+  */
 
-  // --- Exportar JSON ---
-  const btnExport = $("#btnExportJson");
-  if (btnExport) {
-    btnExport.addEventListener("click", () => {
-      const dataStr = JSON.stringify({ tasks, exportedAt: new Date() }, null, 2);
-      const blob = new Blob([dataStr], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `ppc_tasks_${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    });
-  }
+  /*
+    // --- Exportar JSON ---
+    const btnExport = $("#btnExportJson");
+    if (btnExport) {
+      btnExport.addEventListener("click", () => {
+        const dataStr = JSON.stringify({ tasks, exportedAt: new Date() }, null, 2);
+        const blob = new Blob([dataStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `ppc_tasks_${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      });
+    }
+  */
 }
 
 // New Init using API
 async function init() {
   loadFilters();
   bindEvents();
-  updateCsvStatus(); // Mostra o status inicial dos CSVs
+  // updateCsvStatus(); // Mostra o status inicial dos CSVs
 
   console.log("Iniciando carregamento de dados via API...");
   try {
-    // 1. Busca os dados da API (Ajustado para o nome correto da sua função)
-    const data = await api.getTasks(); 
-    
-    // 2. Normaliza os dados usando a normalizeTasks
-    tasks = normalizeTasks(data);
-    
-    // 3. Atualiza metadados e UI
+    // 1. Busca os dados da API (Tarefas e Apontamentos)
+    const [tasksData, apontamentosData] = await Promise.all([
+      api.getTasks(),
+      api.getApontamentos()
+    ]);
+
+    // 2. Mescla os dados
+    const merged = mergeData(tasksData, apontamentosData);
+
+    // 3. Normaliza os dados usando a normalizeTasks
+    tasks = normalizeTasks(merged);
+
+    // 4. Atualiza metadados e UI
     setUpdatedMeta(new Date().toISOString());
     populatePeopleDropdown();
     syncControls(); // Garante que os inputs reflitam o 'filters' carregado
     render();
-    
+
     console.log("Inicialização via API concluída.", tasks.length, "tarefas.");
   } catch (e) {
     console.error("Erro fatal ao carregar dados da API:", e);
-    
+
+
     // Fallback para LocalStorage se a API falhar
     const cachedTasks = loadFromLocalStorage();
     if (cachedTasks) {
@@ -845,21 +857,23 @@ function mergeData(tasksList, apontamentosList) {
   if (!Array.isArray(tasksList)) return [];
   if (!Array.isArray(apontamentosList)) return tasksList;
 
-  // Criar mapa de apontamentos por ID da demanda
-  // Assumindo que o apontamento tem um campo 'DemandaId' ou similar que bate com o ID da tarefa
+  // Criar mapa de apontamentos agrupados por ID da demanda
   const map = new Map();
   apontamentosList.forEach(a => {
-    // Tenta encontrar o ID no apontamento. Ajuste o campo conforme o retorno real da API.
     const key = String(a.DemandaId || a.demanda_id || a.id || "").trim();
-    if (key) map.set(key, a);
+    if (key) {
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(a);
+    }
   });
 
   return tasksList.map(task => {
-    // Tenta identificar o ID da tarefa
     const taskId = String(task.id || task.ID || task["ID"] || "").trim();
     if (map.has(taskId)) {
-      // Anexa os detalhes do apontamento (CSV2) no objeto da tarefa para o normalizeRow usar
-      task._csv2Details = map.get(taskId);
+      // Anexa a lista de apontamentos no objeto da tarefa
+      task._apontamentos = map.get(taskId);
+    } else {
+      task._apontamentos = [];
     }
     return task;
   });

@@ -51,22 +51,24 @@ const api = {
         }
     },
 
-    async uploadCSV(file) {
-        const formData = new FormData();
-        formData.append("file", file);
-
-        try {
-            const resp = await fetch(`${API_BASE_URL}/upload_csv`, {
-                method: "POST",
-                body: formData
-            });
-            if (!resp.ok) throw new Error(`Falha no Upload: ${resp.status}`);
-            return await resp.json();
-        } catch (e) {
-            console.error("Upload de CSV falhou:", e);
-            throw e;
+    /*
+        async uploadCSV(file) {
+            const formData = new FormData();
+            formData.append("file", file);
+    
+            try {
+                const resp = await fetch(`${API_BASE_URL}/upload_csv`, {
+                    method: "POST",
+                    body: formData
+                });
+                if (!resp.ok) throw new Error(`Falha no Upload: ${resp.status}`);
+                return await resp.json();
+            } catch (e) {
+                console.error("Upload de CSV falhou:", e);
+                throw e;
+            }
         }
-    }
+    */
 };
 
 // Expor globalmente
