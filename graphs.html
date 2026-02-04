@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="pt-BR">
 
@@ -285,10 +284,11 @@
             </div>
             <div class="controls">
                 <div class="control"><label>Período</label><select id="periodSelect">
+                        <option value="all" selected>Todo o Período</option>
                         <option value="30">Últimos 30 dias</option>
+                        <option value="future_6">Próximos 6 Meses (Planejamento)</option>
                         <option value="month">Este Mês</option>
                         <option value="year">Este Ano</option>
-                        <option value="all">Todo o Período</option>
                         <option value="custom">Personalizado</option>
                     </select>
                 </div>
@@ -315,6 +315,7 @@
                     </select></div>
                 <div class="control"><label>Visão Responsáveis</label><select id="respViewSelect">
                         <option value="individual">Individual (Detalhado)</option>
+                        <option value="individual_monthly">Mensal por Responsável</option>
                         <option value="aggregated">Consolidado (Soma Equipe)</option>
                     </select></div>
                 <div class="control"><label>Métrica</label><select id="metricSelect">
@@ -346,7 +347,7 @@
             <div class="charts-grid">
                 <!-- Gráfico 4 (Responsável vs Capacidade) -->
                 <div class="chart-card" style="grid-column: 1 / -1;">
-                    <h3>Horas Totais por Responsável vs Capacidade (176h)</h3>
+                    <h3>Horas Totais por Responsável vs Capacidade</h3>
                     <div class="chart-container" style="min-height: 350px;"><canvas id="chartResponsible"></canvas>
                     </div>
                 </div>
@@ -360,6 +361,26 @@
                     <h3>Horas por Status</h3>
                     <div class="chart-container"><canvas id="chartStatus"></canvas></div>
                 </div>
+                <!-- Nova Seção: Cronograma Diário -->
+                <div class="card" style="grid-column: span 2; min-height: 450px; margin-bottom: 20px;">
+                    <div class="card-header">
+                        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+                            <h2>Cronograma Diário de Atividades</h2>
+                            <div
+                                style="font-size: 0.8rem; color: #666; background: #eee; padding: 4px 8px; border-radius: 4px;">
+                                <i class="fas fa-info-circle"></i> Visão dia-a-dia (Seg-Sex)
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chart-container"
+                        style="position: relative; height: 350px; overflow-y: auto; overflow-x: hidden;">
+                        <div id="dailyScheduleContainer" style="padding: 10px;">
+                            <!-- List view will be injected here -->
+                            <p style="text-align:center; color:#888;">Carregando...</p>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Gráfico 3 (Dashboard de Entregas) -->
                 <div class="chart-card" style="grid-column: 1 / -1;">
                     <div

@@ -3,13 +3,9 @@
    Centraliza todas as chamadas de fetch para o Backend Python/Flask
    ========================= */
 
-const API_BASE_URL = "/lists"; // Proxy reverso do Apache2
+const API_BASE_URL = "http://localhost:5000/lists";
 
 const api = {
-    /**
-     * Busca todas as tarefas do backend
-     * GET /lists/demandas
-     */
     async getTasks() {
         try {
             const resp = await fetch(`${API_BASE_URL}/demandas`);
@@ -17,19 +13,26 @@ const api = {
             const data = await resp.json();
             return Array.isArray(data) ? data : (data.tasks || []);
         } catch (e) {
-            console.error("Falha ao buscar tarefas:", e);
+            console.error("Falha ao trazer tarefas:", e);
             throw e;
         }
     },
 
-    /**
-     * Atualiza uma tarefa específica (ex: mudança de status)
-     * PATCH /lists/demanda/:id
-     */
+    async getApontamentos() {
+        try {
+            const resp = await fetch(`${API_BASE_URL}/apontamentos`);
+            if (!resp.ok) throw new Error(`Erro na API: ${resp.status}`);
+            const apontamentos = await resp.json();
+            return Array.isArray(apontamentos) ? apontamentos : (apontamentos.apontamentos || []);
+        } catch (e) {
+            console.error("Falha ao buscar apontamentos:", e);
+            throw e;
+        }
+    },
+
     async updateTask(id, updates) {
         try {
             const payload = {};
-
             if (updates.status !== undefined) {
                 payload["Status"] = updates.status;
             }
@@ -41,7 +44,6 @@ const api = {
             });
 
             if (!resp.ok) throw new Error(`Erro na API: ${resp.status}`);
-
             return await resp.json();
         } catch (e) {
             console.error(`Falha ao atualizar tarefa ${id}:`, e);
@@ -49,10 +51,6 @@ const api = {
         }
     },
 
-    /**
-     * Envia arquivo CSV para o backend para processamento
-     * POST /lists/upload_csv
-     */
     async uploadCSV(file) {
         const formData = new FormData();
         formData.append("file", file);
@@ -73,3 +71,29 @@ const api = {
 
 // Expor globalmente
 window.api = api;
+
+/* =========================
+   INICIALIZAÇÃO AUTOMÁTICA
+   Aciona as APIs ao carregar a página
+   ========================= */
+
+async function initApp() {
+    console.log("Iniciando carregamento de dados...");
+    try {
+        // Promise.all executa ambas as chamadas simultaneamente
+        const [tarefas, apontamentos] = await Promise.all([
+            api.getTasks(),
+            api.getApontamentos()
+        ]);
+
+        console.log("✅ Tarefas carregadas:", tarefas);
+        console.log("✅ Apontamentos carregados:", apontamentos);
+
+    } catch (error) {
+        console.error("❌ Erro na inicialização:", error);
+        alert("Não foi possível conectar ao servidor Flask.");
+    }
+}
+
+// Escuta o evento de carregamento do DOM para rodar a função
+document.addEventListener("DOMContentLoaded", initApp);

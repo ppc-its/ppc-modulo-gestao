@@ -21,6 +21,64 @@ const COLORS = {
     ]
 };
 
+// Feriados Nacionais (Brasil) - Formato YYYY-MM-DD
+// Inclui Carnaval, Corpus Christi e Fixos
+const HOLIDAYS = [
+    // 2024
+    '2024-01-01', // Confraternização
+    '2024-02-12', // Carnaval
+    '2024-02-13', // Carnaval
+    '2024-03-29', // Paixão de Cristo
+    '2024-04-21', // Tiradentes
+    '2024-05-01', // Trabalho
+    '2024-05-30', // Corpus Christi
+    '2024-09-07', // Independência
+    '2024-10-12', // Padroeira
+    '2024-11-02', // Finados
+    '2024-11-15', // Proclamação
+    '2024-11-20', // Consciência Negra
+    '2024-12-25', // Natal
+
+    // 2025
+    '2025-01-01',
+    '2025-03-03', // Carnaval
+    '2025-03-04', // Carnaval
+    '2025-04-18', // Paixão
+    '2025-04-21',
+    '2025-05-01',
+    '2025-06-19', // Corpus
+    '2025-09-07',
+    '2025-10-12',
+    '2025-11-02',
+    '2025-11-15',
+    '2025-11-20',
+    '2025-12-25'
+];
+
+function getMonthlyCapacity(year, month) {
+    // month é 0-indexed (0=Jan)
+    let d = new Date(year, month, 1);
+    let businessDays = 0;
+
+    while (d.getMonth() === month) {
+        const day = d.getDay();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const dayStr = String(d.getDate()).padStart(2, '0');
+        const dateStr = `${y}-${m}-${dayStr}`;
+
+        // Segunda(1) a Sexta(5)
+        if (day !== 0 && day !== 6) {
+            // Verifica se é feriado
+            if (!HOLIDAYS.includes(dateStr)) {
+                businessDays++;
+            }
+        }
+        d.setDate(d.getDate() + 1);
+    }
+    return businessDays * 8;
+}
+
 // ROLE_MAPPINGS REMOVIDO (Não utilizamos mais CSV1 para atribuições)
 
 
@@ -252,7 +310,7 @@ function setupEventListeners() {
 }
 
 function resetFilters() {
-    document.getElementById('periodSelect').value = "30";
+    document.getElementById('periodSelect').value = "90";
     document.getElementById('customDateContainer').style.display = 'none'; // Hide on reset
     document.getElementById('startDate').value = "";
     document.getElementById('endDate').value = "";
@@ -299,6 +357,21 @@ function applyFilters() {
             const diffTime = Math.abs(TODAY - itemDate);
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             if (diffDays > 30) return false;
+        } else if (period === '90') {
+            const diffTime = Math.abs(TODAY - itemDate);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            if (diffDays > 90) return false;
+        } else if (period === 'future_6') {
+            // Futuro: Data >= Hoje (Inicio do Dia) E Data <= Hoje + 6 Meses
+            const futureDate = new Date(TODAY);
+            futureDate.setMonth(futureDate.getMonth() + 6);
+
+            // Aceitar se data do item for maior ou igual a hoje (ignora horas)
+            const itemTime = itemDate.getTime();
+            const todayTime = new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate()).getTime();
+
+            if (itemTime < todayTime) return false;
+            if (itemDate > futureDate) return false;
         } else if (period === 'month') {
             if (itemDate.getMonth() !== TODAY.getMonth() || itemDate.getFullYear() !== TODAY.getFullYear()) return false;
         } else if (period === 'year') {
@@ -434,6 +507,9 @@ function initCharts(data, metric) {
 
     // 4. Responsável vs Capacidade (Delegado para updateCharts para consistência)
     updateCharts(data, metric, 'individual', null);
+
+    // 5. Cronograma Diário (Inicialização)
+    updateDailyChart(data, metric, null);
 }
 
 function updateCharts(data, metric, viewMode = 'individual', filterOwner = null) {
@@ -486,9 +562,13 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
     let config;
 
     let labels = [];
+    let datasets = []; // Usado para Custom Config
+    let overrideConfig = false;
+
     let dataWorked = [];
     let dataRemaining = [];
     let dataOvertime = [];
+    let dataCapacity = [];
 
     if (viewMode === 'individual') {
         // --- VISÃO INDIVIDUAL (Cada Pessoa = Uma Barra) ---
@@ -505,7 +585,182 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
             dataWorked.push(worked);
             dataRemaining.push(remaining);
             dataOvertime.push(overtime);
+            dataCapacity.push(CAPACITY);
         });
+    } else if (viewMode === 'individual_monthly') {
+        // --- VISÃO INDIVIDUAL MENSAL ---
+        const respData = processResponsibleData(data, respMetric, filterOwner);
+        labels = respData.persons;
+
+        // Plugin para desenhar linhas de capacidade dinâmica sobre cada barra
+        const capacityOverlayPlugin = {
+            id: 'capacityOverlay',
+            afterDatasetsDraw(chart, args, options) {
+                const { ctx, scales: { x, y } } = chart;
+
+                chart.data.datasets.forEach((dataset, i) => {
+                    const meta = chart.getDatasetMeta(i);
+                    // Ignora datasets que não são de dados temporais (ex: se houver outros)
+                    if (dataset.type === 'line') return;
+
+                    let capacity = 176;
+                    const monthName = dataset.label;
+
+                    try {
+                        const parts = monthName.split('/');
+                        if (parts.length === 2) {
+                            const mStr = parts[0].toLowerCase();
+                            const yStr = '20' + parts[1];
+                            const monthsMap = {
+                                'jan': 0, 'fev': 1, 'mar': 2, 'abr': 3, 'mai': 4, 'jun': 5,
+                                'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
+                            };
+                            if (monthsMap[mStr] !== undefined) {
+                                capacity = getMonthlyCapacity(parseInt(yStr), monthsMap[mStr]);
+                            }
+                        }
+                    } catch (e) { }
+
+                    meta.data.forEach((bar) => {
+                        if (!bar.base) return;
+
+                        const xLeft = bar.x - bar.width / 2;
+                        const xRight = bar.x + bar.width / 2;
+                        const yPos = y.getPixelForValue(capacity);
+
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.strokeStyle = '#DC2626';
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([4, 3]);
+                        ctx.moveTo(xLeft - 3, yPos);
+                        ctx.lineTo(xRight + 3, yPos);
+                        ctx.stroke();
+                        ctx.restore();
+                    });
+                });
+            }
+        };
+
+        const monthColors = [
+            '#0F172A', '#334155', '#475569', '#64748B',
+            '#94A3B8', '#0EA5E9', '#0284C7', '#0369A1'
+        ];
+
+        let colorIdx = 0;
+        respData.monthKeys.forEach((mKey, idx) => {
+            const mLabel = respData.labels[idx];
+            const mData = [];
+
+            respData.persons.forEach(p => {
+                const key = `${mKey}|${p}`;
+                mData.push(respData.values[key] || 0);
+            });
+
+            datasets.push({
+                label: mLabel,
+                data: mData,
+                backgroundColor: monthColors[colorIdx % monthColors.length],
+                borderRadius: 3,
+                borderWidth: 0,
+                barPercentage: 0.7,
+                categoryPercentage: 0.85
+            });
+            colorIdx++;
+        });
+
+        config = {
+            type: 'bar',
+            data: { labels: labels, datasets: datasets },
+            plugins: [capacityOverlayPlugin],
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'nearest',
+                    axis: 'x',
+                    intersect: false,
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false },
+                        ticks: {
+                            font: { size: 11, family: 'Inter, system-ui' },
+                            color: '#64748B',
+                            callback: function (value) { return value + 'h'; }
+                        },
+                        border: { display: false }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: {
+                            font: { size: 12, weight: '600', family: 'Inter, system-ui' },
+                            color: '#334155'
+                        },
+                        border: { display: false }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        align: 'end',
+                        labels: {
+                            usePointStyle: true,
+                            font: { size: 11, weight: '500' }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                        padding: 12,
+                        callbacks: {
+                            title: (items) => `${items[0].label} - ${items[0].dataset.label}`,
+                            label: function (context) {
+                                const val = context.parsed.y || 0;
+                                const monthName = context.dataset.label;
+
+                                let capacity = 176;
+                                try {
+                                    const parts = monthName.split('/');
+                                    if (parts.length === 2) {
+                                        const mStr = parts[0].toLowerCase();
+                                        const yStr = '20' + parts[1];
+                                        const monthsMap = {
+                                            'jan': 0, 'fev': 1, 'mar': 2, 'abr': 3, 'mai': 4, 'jun': 5,
+                                            'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
+                                        };
+                                        if (monthsMap[mStr] !== undefined) {
+                                            capacity = getMonthlyCapacity(parseInt(yStr), monthsMap[mStr]);
+                                        }
+                                    }
+                                } catch (e) { }
+
+                                const percent = capacity > 0 ? Math.round((val / capacity) * 100) : 0;
+                                const diff = Math.round(capacity - val);
+
+                                return [
+                                    `Trabalhado: ${Math.round(val)}h`,
+                                    `Capacidade Real: ${capacity}h`,
+                                    `Ocupação: ${percent}%`,
+                                    diff >= 0 ? `Disponível: ${diff}h` : `Excedente: ${Math.abs(diff)}h`
+                                ];
+                            }
+                        }
+                    },
+                    datalabels: {
+                        display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 15,
+                        color: '#fff',
+                        anchor: 'center',
+                        align: 'center',
+                        formatter: (val) => Math.round(val),
+                        font: { weight: '600', size: 10 }
+                    }
+                }
+            }
+        };
+        overrideConfig = true;
+
     } else {
         // --- VISÃO CONSOLIDADA (Temporal - Soma de Todas as Pessoas) ---
         // X-axis: Meses, Y-axis: Soma de todas as pessoas (stacked)
@@ -517,13 +772,21 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
             let monthTotal = 0;
             // Somar todas as pessoas neste mês
             respData.persons.forEach(p => {
-                const key = `${m}| ${p} `;
+                const key = `${m}|${p}`; // CORRIGIDO: Removido espaços extras na chave
                 monthTotal += (respData.values[key] || 0);
             });
 
-            // Calcular capacidade total para este mês (176h × número de pessoas)
+            // Calcular capacidade total dinâmica para este mês
+            let singleCapacity = 176;
+            const parts = m.split('-');
+            if (parts.length === 2) {
+                const year = parseInt(parts[0]);
+                const monthIndex = parseInt(parts[1]) - 1; // 0-indexed
+                singleCapacity = getMonthlyCapacity(year, monthIndex);
+            }
+
             const peopleCount = respData.persons.length;
-            const monthCapacity = CAPACITY * peopleCount;
+            const monthCapacity = singleCapacity * peopleCount;
 
             const worked = Math.min(monthTotal, monthCapacity);
             const remaining = Math.max(0, monthCapacity - monthTotal);
@@ -532,182 +795,191 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
             dataWorked.push(worked);
             dataRemaining.push(remaining);
             dataOvertime.push(overtime);
+            dataCapacity.push(monthCapacity);
         });
     }
 
-    config = {
-        type: 'bar',
-        data: {
-            labels: labels,
-            datasets: [
-                {
-                    label: 'Horas Excedentes',
-                    data: dataOvertime,
-                    backgroundColor: '#FF6B6B', // Coral vibrante
-                    borderRadius: 6,
-                    stack: 'Stack 0',
-                    order: 1,
-                    barPercentage: 0.65,
-                    categoryPercentage: 0.9
-                },
-                {
-                    label: 'Horas Trabalhadas',
-                    data: dataWorked,
-                    backgroundColor: '#4ECDC4', // Turquesa vibrante
-                    borderRadius: 6,
-                    stack: 'Stack 0',
-                    order: 2,
-                    barPercentage: 0.65,
-                    categoryPercentage: 0.9
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    stacked: true,
-                    grid: {
-                        color: 'rgba(0,0,0,0.08)',
-                        drawBorder: false,
-                        lineWidth: 1
-                    },
-                    border: {
-                        display: false
-                    },
-                    ticks: {
-                        font: { size: 12, weight: '500', family: 'ui-sans-serif, system-ui' },
-                        color: '#64748b',
-                        padding: 10,
-                        callback: function (value) {
-                            return value + 'h';
-                        }
-                    }
-                },
-                x: {
-                    stacked: true,
-                    grid: { display: false },
-                    border: {
-                        display: false
-                    },
-                    ticks: {
-                        autoSkip: false,
-                        maxRotation: 45,
-                        minRotation: 0,
-                        font: { size: 12, weight: '600', family: 'ui-sans-serif, system-ui' },
-                        color: '#334155',
-                        padding: 8
-                    }
-                }
-            },
-            plugins: {
-                legend: {
-                    display: true,
-                    position: 'top',
-                    align: 'end',
-                    labels: {
-                        usePointStyle: true,
-                        pointStyle: 'circle',
-                        boxWidth: 8,
-                        boxHeight: 8,
-                        font: { size: 12, weight: '600', family: 'ui-sans-serif, system-ui' },
-                        padding: 15,
-                        color: '#1e293b'
-                    }
-                },
-                tooltip: {
-                    enabled: true,
-                    mode: 'index',
-                    intersect: false,
-                    backgroundColor: 'rgba(15, 23, 42, 0.96)',
-                    titleFont: { size: 13, weight: '600', family: 'ui-sans-serif, system-ui' },
-                    bodyFont: { size: 12, family: 'ui-sans-serif, system-ui' },
-                    padding: 12,
-                    cornerRadius: 8,
-                    displayColors: true,
-                    callbacks: {
-                        title: function (tooltipItems) {
-                            return tooltipItems[0].label;
-                        },
-                        label: function (context) {
-                            const label = context.dataset.label;
-                            const val = context.parsed.y;
-                            if (val === 0) return null;
-                            return `${label}: ${Math.round(val)}h`;
-                        },
-                        afterBody: function (tooltipItems) {
-                            const idx = tooltipItems[0].dataIndex;
-                            const worked = dataWorked[idx] || 0;
-                            const overtime = dataOvertime[idx] || 0;
-                            const remaining = dataRemaining[idx] || 0;
-                            const total = worked + overtime;
 
-                            let lines = [];
-                            lines.push('─────────────');
-                            lines.push(`Total: ${Math.round(total)}h`);
-                            lines.push(`Capacidade: 176h`);
-                            if (remaining > 0) {
-                                lines.push(`Disponível: ${Math.round(remaining)}h`);
+
+    if (!overrideConfig) {
+        config = {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Horas Excedentes',
+                        data: dataOvertime,
+                        backgroundColor: '#FF6B6B', // Coral vibrante
+                        borderRadius: 6,
+                        stack: 'Stack 0',
+                        order: 1,
+                        barPercentage: 0.65,
+                        categoryPercentage: 0.9
+                    },
+                    {
+                        label: 'Horas Trabalhadas',
+                        data: dataWorked,
+                        backgroundColor: '#4ECDC4', // Turquesa vibrante
+                        borderRadius: 6,
+                        stack: 'Stack 0',
+                        order: 2,
+                        barPercentage: 0.65,
+                        categoryPercentage: 0.9
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        stacked: true,
+                        grid: {
+                            color: 'rgba(0,0,0,0.08)',
+                            drawBorder: false,
+                            lineWidth: 1
+                        },
+                        border: {
+                            display: false
+                        },
+                        ticks: {
+                            font: { size: 12, weight: '500', family: 'ui-sans-serif, system-ui' },
+                            color: '#64748b',
+                            padding: 10,
+                            callback: function (value) {
+                                return value + 'h';
                             }
-                            return lines;
+                        }
+                    },
+                    x: {
+                        stacked: true,
+                        grid: { display: false },
+                        border: {
+                            display: false
+                        },
+                        ticks: {
+                            autoSkip: false,
+                            maxRotation: 45,
+                            minRotation: 0,
+                            font: { size: 12, weight: '600', family: 'ui-sans-serif, system-ui' },
+                            color: '#334155',
+                            padding: 8
                         }
                     }
                 },
-                datalabels: {
-                    display: function (context) {
-                        const value = context.dataset.data[context.dataIndex];
-                        // Só mostra se o valor for significativo
-                        return value >= 5;
-                    },
-                    color: '#ffffff',
-                    font: {
-                        weight: 'bold',
-                        size: 13,
-                        family: 'ui-sans-serif, system-ui'
-                    },
-                    formatter: (value, ctx) => {
-                        if (value < 5) return "";
-
-                        // Para cada barra, mostrar o total acumulado no topo
-                        const datasetIndex = ctx.datasetIndex;
-                        const dataIndex = ctx.dataIndex;
-
-                        // Se for o último dataset visível (topo da pilha), mostrar total
-                        if (datasetIndex === 0 && dataOvertime[dataIndex] >= 5) {
-                            // Topo da pilha - mostrar total
-                            const total = (dataWorked[dataIndex] || 0) + (dataOvertime[dataIndex] || 0);
-                            return Math.round(total) + 'h';
-                        } else if (datasetIndex === 1 && (dataOvertime[dataIndex] < 5)) {
-                            // Se não há overtime, mostrar total no worked
-                            const total = dataWorked[dataIndex] || 0;
-                            return Math.round(total) + 'h';
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        align: 'end',
+                        labels: {
+                            usePointStyle: true,
+                            pointStyle: 'circle',
+                            boxWidth: 8,
+                            boxHeight: 8,
+                            font: { size: 12, weight: '600', family: 'ui-sans-serif, system-ui' },
+                            padding: 15,
+                            color: '#1e293b'
                         }
-
-                        return '';
                     },
-                    anchor: 'end',
-                    align: 'top',
-                    offset: 4,
-                    backgroundColor: 'rgba(15, 23, 42, 0.85)',
-                    borderRadius: 4,
-                    padding: { top: 4, bottom: 4, left: 8, right: 8 }
+                    tooltip: {
+                        enabled: true,
+                        mode: 'index',
+                        intersect: false,
+                        backgroundColor: 'rgba(15, 23, 42, 0.96)',
+                        titleFont: { size: 13, weight: '600', family: 'ui-sans-serif, system-ui' },
+                        bodyFont: { size: 12, family: 'ui-sans-serif, system-ui' },
+                        padding: 12,
+                        cornerRadius: 8,
+                        displayColors: true,
+                        callbacks: {
+                            title: function (tooltipItems) {
+                                return tooltipItems[0].label;
+                            },
+                            label: function (context) {
+                                const label = context.dataset.label;
+                                const val = context.parsed.y;
+                                if (val === 0) return null;
+                                return `${label}: ${Math.round(val)}h`;
+                            },
+                            afterBody: function (tooltipItems) {
+                                const idx = tooltipItems[0].dataIndex;
+                                const worked = dataWorked[idx] || 0;
+                                const overtime = dataOvertime[idx] || 0;
+                                const remaining = dataRemaining[idx] || 0;
+                                const capacity = dataCapacity[idx] || 176;
+                                const total = worked + overtime;
+
+                                let lines = [];
+                                lines.push('─────────────');
+                                lines.push(`Total: ${Math.round(total)}h`);
+                                lines.push(`Capacidade: ${Math.round(capacity)}h`);
+                                if (remaining > 0) {
+                                    lines.push(`Disponível: ${Math.round(remaining)}h`);
+                                }
+                                return lines;
+                            }
+                        }
+                    },
+                    datalabels: {
+                        display: function (context) {
+                            const value = context.dataset.data[context.dataIndex];
+                            // Só mostra se o valor for significativo
+                            return value >= 5;
+                        },
+                        color: '#ffffff',
+                        font: {
+                            weight: 'bold',
+                            size: 13,
+                            family: 'ui-sans-serif, system-ui'
+                        },
+                        formatter: (value, ctx) => {
+                            if (value < 5) return "";
+
+                            // Para cada barra, mostrar o total acumulado no topo
+                            const datasetIndex = ctx.datasetIndex;
+                            const dataIndex = ctx.dataIndex;
+
+                            // Se for o último dataset visível (topo da pilha), mostrar total
+                            if (datasetIndex === 0 && dataOvertime[dataIndex] >= 5) {
+                                // Topo da pilha - mostrar total
+                                const total = (dataWorked[dataIndex] || 0) + (dataOvertime[dataIndex] || 0);
+                                return Math.round(total) + 'h';
+                            } else if (datasetIndex === 1 && (dataOvertime[dataIndex] < 5)) {
+                                // Se não há overtime, mostrar total no worked
+                                const total = dataWorked[dataIndex] || 0;
+                                return Math.round(total) + 'h';
+                            }
+
+                            return '';
+                        },
+                        anchor: 'end',
+                        align: 'top',
+                        offset: 4,
+                        backgroundColor: 'rgba(15, 23, 42, 0.85)',
+                        borderRadius: 4,
+                        padding: { top: 4, bottom: 4, left: 8, right: 8 }
+                    }
+                },
+                layout: {
+                    padding: {
+                        top: 35,
+                        bottom: 5,
+                        left: 5,
+                        right: 5
+                    }
                 }
             },
-            layout: {
-                padding: {
-                    top: 35,
-                    bottom: 5,
-                    left: 5,
-                    right: 5
-                }
-            }
-        },
-        plugins: [ChartDataLabels]
-    };
+            plugins: [ChartDataLabels]
+        };
+    }
 
     chartResponsibleInstance = new Chart(ctxResp, config);
+
+    // 5. Atualizar Cronograma Diário
+    updateDailyChart(data, metric, filterOwner);
 }
 
 // Helper auxiliar para manter o código limpo (funções antigas mantidas mas não usadas no novo fluxo)
@@ -883,51 +1155,79 @@ function processResponsibleData(data, metric, filterOwner = null) {
     const uniquePersonsPerMonth = {};
 
     data.forEach(d => {
-        const dateRef = d.dateEnd || d.date || new Date();
-        const y = dateRef.getFullYear();
-        const m = dateRef.getMonth() + 1;
-        const monthKey = `${y} -${String(m).padStart(2, '0')} `;
-        const label = dateRef.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+        // 1. TENTAR DADOS GRANULARES (LANCAMENTOS) - Fonte da Verdade CSV2
+        const granularData = d.raw && d.raw['_csv2Details'] && d.raw['_csv2Details'].lancamentos;
 
-        monthMap.set(monthKey, label);
+        if (granularData && Array.isArray(granularData) && granularData.length > 0) {
+            granularData.forEach(entry => {
+                // Filtro de Responsável
+                if (filterOwner && entry.person !== filterOwner) return;
 
-        d.assignments.forEach(assign => {
-            if (!assign.person) return;
-            if (filterOwner && assign.person !== filterOwner) return;
+                // Filtro de Métrica
+                let val = entry.hours;
+                if (metric === 'hoursAdm' && entry.type !== 'adm') val = 0;
+                else if (metric === 'hoursProject' && entry.type !== 'project') val = 0;
 
-            const person = assign.person;
-            personSet.add(person);
+                if (val <= 0) return;
 
-            let val = 0;
-            if (metric === 'hours') val = assign.hoursTotal;
-            else if (metric === 'hoursAdm') val = assign.hoursAdm;
-            else if (metric === 'hoursProject') val = assign.hoursProject;
-            else val = assign.hoursTotal;
+                const person = entry.person;
+                const dateObj = parseDate(entry.date);
+                if (!dateObj) return;
 
-            const key = `${monthKey}| ${person} `;
-            values[key] = (values[key] || 0) + val;
+                // Chave de Mês (YYYY-MM)
+                const y = dateObj.getFullYear();
+                const m = dateObj.getMonth() + 1;
+                const monthKey = `${y}-${String(m).padStart(2, '0')}`;
 
-            monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + val;
+                // Label estavel (Jan/24)
+                const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+                let label = `${monthNames[m - 1]}/${String(y).slice(2)}`;
+                // label = label.charAt(0).toUpperCase() + label.slice(1); // Já está Capitalizado
 
-            if (!uniquePersonsPerMonth[monthKey]) {
-                uniquePersonsPerMonth[monthKey] = new Set();
-            }
-            if (assign.role !== 'Sócio' && assign.role !== 'Gerente') {
+                monthMap.set(monthKey, label);
+                personSet.add(person);
+
+                // Acumular Valores
+                const key = `${monthKey}|${person}`;
+                values[key] = (values[key] || 0) + val;
+                monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + val;
+
+                if (!uniquePersonsPerMonth[monthKey]) uniquePersonsPerMonth[monthKey] = new Set();
                 uniquePersonsPerMonth[monthKey].add(person);
-            }
-        });
+            });
+        }
+        else {
+            // 2. FALLBACK (Lógica Legada baseada em Data Fim/Assignments)
+            const dateRef = d.dateEnd || d.date || new Date();
+            const y = dateRef.getFullYear();
+            const m = dateRef.getMonth() + 1;
+            const monthKey = `${y}-${String(m).padStart(2, '0')}`;
 
-        // Fallback
-        if (d.assignments.length === 0 && d.owner) {
-            if (filterOwner && d.owner !== filterOwner) return;
-            const person = d.owner;
-            personSet.add(person);
-            const val = getMetricValue(d, metric);
-            const key = `${monthKey}| ${person} `;
-            values[key] = (values[key] || 0) + val;
-            monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + val;
-            if (!uniquePersonsPerMonth[monthKey]) uniquePersonsPerMonth[monthKey] = new Set();
-            uniquePersonsPerMonth[monthKey].add(person);
+            const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+            let label = `${monthNames[m - 1]}/${String(y).slice(2)}`;
+
+            monthMap.set(monthKey, label);
+
+            d.assignments.forEach(assign => {
+                if (!assign.person) return;
+                if (filterOwner && assign.person !== filterOwner) return;
+
+                const person = assign.person;
+                personSet.add(person);
+
+                let val = 0;
+                if (metric === 'hours') val = assign.hoursTotal;
+                else if (metric === 'hoursAdm') val = assign.hoursAdm;
+                else if (metric === 'hoursProject') val = assign.hoursProject;
+                else val = assign.hoursTotal;
+
+                const key = `${monthKey}|${person}`;
+                values[key] = (values[key] || 0) + val;
+                monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + val;
+
+                if (!uniquePersonsPerMonth[monthKey]) uniquePersonsPerMonth[monthKey] = new Set();
+                uniquePersonsPerMonth[monthKey].add(person);
+            });
         }
     });
 
@@ -936,8 +1236,9 @@ function processResponsibleData(data, metric, filterOwner = null) {
 
     const monthlyCapacity = {};
     sortedMonthKeys.forEach(k => {
-        const count = uniquePersonsPerMonth[k] ? uniquePersonsPerMonth[k].size : 0;
-        monthlyCapacity[k] = count * 176;
+        // Capacidade é fixa 176h independente do número de pessoas na visão mensal individual
+        // Mas para a linha de capacidade, queremos 176h plano.
+        monthlyCapacity[k] = 176;
     });
 
     return {
@@ -1023,4 +1324,355 @@ function stringToColor(str) {
     }
     const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
     return '#' + "00000".substring(0, 6 - c.length) + c;
+}
+
+
+// ============================================
+// CRONOGRAMA DIÁRIO (NOVO GRÁFICO)
+// ============================================
+
+let chartDailyInstance = null;
+
+function updateDailyChart(data, metric, filterOwner) {
+    const listContainer = document.getElementById('dailyScheduleContainer');
+    if (listContainer) {
+        renderDailyList(data, metric, filterOwner);
+        return;
+    }
+    const dailyData = processDailyScheduleData(data, metric, filterOwner);
+    const ctx = document.getElementById('chartDailySchedule') ? document.getElementById('chartDailySchedule').getContext('2d') : null;
+    if (!ctx) return;
+
+    // Se não houver dados
+    if (dailyData.labels.length === 0) {
+        if (chartDailyInstance) {
+            chartDailyInstance.data.labels = [];
+            chartDailyInstance.data.datasets = [];
+            chartDailyInstance.update();
+        }
+        return;
+    }
+
+    const config = {
+        type: 'bar',
+        data: {
+            labels: dailyData.labels,
+            datasets: dailyData.datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    stacked: true,
+                    grid: { display: false }
+                },
+                y: {
+                    stacked: true,
+                    beginAtZero: true,
+                    title: { display: true, text: 'Horas Diárias' }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    mode: 'nearest',
+                    intersect: false,
+                    callbacks: {
+                        title: (items) => items[0].label,
+                        beforeBody: (items) => {
+                            // Tenta mostrar o Responsável (se houver metadado)
+                            const ds = items[0].dataset;
+                            if (ds.personName) return `Resp: ${ds.personName}`;
+                            return '';
+                        },
+                        label: (ctx) => {
+                            const ds = ctx.dataset;
+                            if (!ds.data[ctx.dataIndex]) return null;
+                            // Mostra "ID - Projeto: Xh"
+                            return `${ds.label}: ${Math.round(ds.data[ctx.dataIndex] * 100) / 100}h`;
+                        }
+                    }
+                },
+                datalabels: {
+                    display: (ctx) => {
+                        const v = ctx.dataset.data[ctx.dataIndex];
+                        return v > 2; // Só mostra se valor relevante
+                    },
+                    color: '#fff',
+                    font: { weight: 'bold', size: 10 },
+                    formatter: (v, ctx) => {
+                        // Mostra ID
+                        return ctx.dataset.label.split(' ')[0];
+                    },
+                    textStrokeColor: 'rgba(0,0,0,0.5)',
+                    textStrokeWidth: 2
+                }
+            },
+            interaction: {
+                mode: 'nearest',
+                axis: 'x',
+                intersect: false
+            }
+        }
+    };
+
+    if (chartDailyInstance) {
+        chartDailyInstance.destroy();
+    }
+    chartDailyInstance = new Chart(ctx, config);
+}
+
+function processDailyScheduleData(data, metric, filterOwner) {
+    // 1. Identificar Intervalo e Tarefas
+    const dailyMap = new Map(); // DataString -> { taskId: hours }
+    const taskInfo = new Map(); // taskId -> { label, color }
+    const allTaskIds = new Set();
+
+    data.forEach(item => {
+        // Datas CSV2
+        const start = item.dateStart;
+        const end = item.dateEnd;
+        if (!start || !end) return;
+
+        // Calcular dias úteis
+        let businessDays = 0;
+        let d = new Date(start);
+        while (d <= end) {
+            const w = d.getDay();
+            if (w !== 0 && w !== 6) businessDays++;
+            d.setDate(d.getDate() + 1);
+        }
+
+        if (businessDays === 0) return;
+
+        // Definir loop de atribuições
+        let assignments = item.assignments;
+
+        // Se filtro de owner estiver ativo, filtrar assignments
+        // Se não tiver assignments, fallback owner
+        if (assignments.length === 0 && item.owner) {
+            assignments = [{ person: item.owner, hoursTotal: getMetricValue(item, 'hours') }];
+        }
+
+        assignments.forEach(assign => {
+            if (filterOwner && assign.person !== filterOwner) return;
+
+            let h = 0;
+            // Simplificacao de metrica
+            if (metric === 'hours' || metric === 'all') h = assign.hoursTotal || assign.hours || 0;
+            else if (metric === 'hoursAdm') h = assign.hoursAdm || 0;
+            else if (metric === 'hoursProject') h = assign.hoursProject || 0;
+
+            if (h <= 0) return;
+
+            const dailyHours = h / businessDays;
+
+            // Distribuir
+            let curr = new Date(start);
+            while (curr <= end) {
+                const w = curr.getDay();
+                if (w !== 0 && w !== 6) {
+                    const dateKey = curr.toISOString().split('T')[0];
+                    const taskId = item.id;
+                    const taskLabel = `${item.id || '?'} - ${item.client || item.title}`;
+
+                    if (!dailyMap.has(dateKey)) dailyMap.set(dateKey, {});
+                    const entry = dailyMap.get(dateKey);
+
+                    entry[taskId] = (entry[taskId] || 0) + dailyHours;
+
+                    if (!taskInfo.has(taskId)) {
+                        taskInfo.set(taskId, {
+                            label: taskLabel,
+                            color: stringToColor(item.client || item.title)
+                        });
+                    }
+                    allTaskIds.add(taskId);
+                }
+                curr.setDate(curr.getDate() + 1);
+            }
+        });
+    });
+
+    // 2. Ordenar Datas
+    const sortedDates = [...dailyMap.keys()].sort();
+
+    // 3. Criar Datasets (Um por Task ID)
+    // Isso garante o stack correto
+    const uniqueTaskIds = [...allTaskIds];
+    const datasets = uniqueTaskIds.map(taskId => {
+        const info = taskInfo.get(taskId);
+        return {
+            label: info.label,
+            data: sortedDates.map(date => dailyMap.get(date)[taskId] || 0),
+            backgroundColor: info.color,
+            borderRadius: 2
+        };
+    });
+
+    // Formatar labels de data (ex: 05/02 Seg)
+    const formattedLabels = sortedDates.map(dateStr => {
+        const d = new Date(dateStr + 'T12:00:00'); // Safe timezone
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const week = d.toLocaleDateString('pt-BR', { weekday: 'short' });
+        return `${day}/${month} ${week}`;
+    });
+
+    return {
+        labels: formattedLabels,
+        datasets: datasets
+    };
+}
+
+// ============================================
+// NOVA LOGICA DE LISTA (AGENDA) - ADICIONADA
+// ============================================
+
+function renderDailyList(data, metric, filterOwner) {
+    const listContainer = document.getElementById('dailyScheduleContainer');
+    if (!listContainer) return;
+
+    // 1. Processar dados
+    const dailySchedule = processDailyListHelper(data, metric, filterOwner);
+
+    // 2. Limpar view
+    listContainer.innerHTML = '';
+
+    if (Object.keys(dailySchedule).length === 0) {
+        listContainer.innerHTML = '<div style="text-align:center; padding: 40px; color: #888; font-style:italic;">Nenhuma atividade encontrada para o período selecionado.</div>';
+        return;
+    }
+
+    // 3. Gerar HTML
+    const sortedDates = Object.keys(dailySchedule).sort();
+
+    sortedDates.forEach(dateKey => {
+        const dayTasks = dailySchedule[dateKey];
+        if (!dayTasks || dayTasks.length === 0) return;
+
+        // Header do Dia
+        const parts = dateKey.split('-');
+        const dateObj = new Date(parts[0], parts[1] - 1, parts[2]);
+        const dayStr = String(dateObj.getDate()).padStart(2, '0');
+        const monthStr = String(dateObj.getMonth() + 1).padStart(2, '0');
+
+        const weekDay = dateObj.toLocaleDateString('pt-BR', { weekday: 'long' });
+        const weekDayPretty = weekDay.charAt(0).toUpperCase() + weekDay.slice(1);
+
+        const dateHeader = document.createElement('div');
+        dateHeader.style.cssText = 'background-color: #f3f6f9; border-left: 5px solid #0b4f78; padding: 10px 15px; margin-top: 20px; margin-bottom: 12px; font-family: Segoe UI, sans-serif; color: #2c3e50; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.03);';
+
+        dateHeader.innerHTML = '<div style="display:flex; align-items:baseline;"><span style="font-size: 1.2rem; font-weight: bold; margin-right: 8px;">' + dayStr + '/' + monthStr + '</span><span style="font-size: 1rem; color: #666;">' + weekDayPretty + '</span></div><span style="font-size:0.75rem; background:#dfe6ed; color:#444; padding:3px 8px; border-radius:12px; font-weight:600;">' + dayTasks.length + ' tarefas</span>';
+        listContainer.appendChild(dateHeader);
+
+        // Grid de Cards
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 10px;';
+
+        dayTasks.forEach(task => {
+            const card = document.createElement('div');
+            const stripColor = stringToColor(task.client || task.title);
+
+            card.style.cssText = 'background: white; border: 1px solid #e1e4e8; border-left: 4px solid ' + stripColor + '; border-radius: 6px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 5px rgba(0,0,0,0.03);';
+
+            const hoursVal = Math.round(task.hours * 100) / 100;
+            const typeLabel = task.type === 'adm' ? 'ADM' : 'PROJ';
+
+            card.innerHTML = '<div style="margin-bottom: 8px;"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><span style="font-size: 0.8rem; font-weight:800; color:#0b4f78; background:#eaf4fc; padding:2px 6px; border-radius:4px;">ID ' + task.id + '</span><span style="font-size: 0.75rem; color: #999; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">' + typeLabel + '</span></div><div style="margin-top:6px; font-weight:600; font-size: 0.95rem; color:#333; line-height:1.3;">' + (task.client || task.title) + '</div></div><div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid #f0f0f0; paddingTop:8px; margin-top:4px;"><div style="display:flex; align-items:center; color:#555; font-size:0.85rem;"><i class="fas fa-user" style="margin-right:6px; color:#aaa; font-size:0.8rem;"></i><span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:140px;" title="' + task.person + '">' + task.person + '</span></div><div style="font-weight:bold; color:#2c3e50; font-size:1rem;">' + hoursVal + 'h</div></div>';
+            grid.appendChild(card);
+        });
+
+        listContainer.appendChild(grid);
+    });
+}
+
+function processDailyListHelper(data, metric, filterOwner) {
+    const dates = {};
+
+    data.forEach(item => {
+        const granularData = item.raw && item.raw['_csv2Details'] && item.raw['_csv2Details'].lancamentos;
+
+        if (granularData && Array.isArray(granularData) && granularData.length > 0) {
+            granularData.forEach(entry => {
+                if (filterOwner && entry.person !== filterOwner) return;
+
+                let h = entry.hours;
+                if (metric === 'hoursAdm' && entry.type !== 'adm') h = 0;
+                if (metric === 'hoursProject' && entry.type !== 'project') h = 0;
+                if (h <= 0) return;
+
+                const dateObj = parseDate(entry.date);
+                if (!dateObj) return;
+
+                const y = dateObj.getFullYear();
+                const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+                const d = String(dateObj.getDate()).padStart(2, '0');
+                const dateKey = y + '-' + m + '-' + d;
+
+                if (!dates[dateKey]) dates[dateKey] = [];
+                dates[dateKey].push({
+                    id: item.id,
+                    client: item.client || item.title,
+                    person: entry.person,
+                    hours: h,
+                    type: entry.type
+                });
+            });
+        }
+        else {
+            const start = item.dateStart;
+            const end = item.dateEnd;
+            if (!start || !end) return;
+
+            let assignments = item.assignments;
+            if (assignments.length === 0 && item.owner) {
+                assignments = [{ person: item.owner, hoursTotal: getMetricValue(item, 'hours') }];
+            }
+
+            const daysInInterval = [];
+            let d = new Date(start);
+            d.setHours(0, 0, 0, 0);
+            const endDate = new Date(end);
+            endDate.setHours(0, 0, 0, 0);
+
+            while (d <= endDate) {
+                const w = d.getDay();
+                if (w !== 0 && w !== 6) {
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    daysInInterval.push(y + '-' + m + '-' + day);
+                }
+                d.setDate(d.getDate() + 1);
+            }
+            const businessDays = daysInInterval.length;
+            if (businessDays === 0) return;
+
+            assignments.forEach(assign => {
+                if (filterOwner && assign.person !== filterOwner) return;
+
+                let h = 0;
+                if (metric === 'hours' || metric === 'all') h = assign.hoursTotal || 0;
+                else if (metric === 'hoursAdm') h = assign.hoursAdm || 0;
+                else if (metric === 'hoursProject') h = assign.hoursProject || 0;
+                if (h <= 0) return;
+
+                const dailyHours = h / businessDays;
+
+                daysInInterval.forEach(dateKey => {
+                    if (!dates[dateKey]) dates[dateKey] = [];
+                    dates[dateKey].push({
+                        id: item.id,
+                        client: item.client || item.title,
+                        person: assign.person,
+                        hours: dailyHours,
+                        type: 'mixed'
+                    });
+                });
+            });
+        }
+    });
+    return dates;
 }
