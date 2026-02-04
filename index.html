@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PPeC • Gestão de Tarefas — Esforço × Horas</title>
+  <link rel="icon" href="assets/logo.png" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+
+<body>
+  <div class="app">
+    <!-- Barra Lateral -->
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="assets/logo.png" alt="Logo" />
+      </div>
+
+      <div class="section-title">
+        <div class="pill">Filtros</div>
+      </div>
+
+      <div class="controls">
+        <div class="control">
+          <label>Responsável</label>
+          <select id="personSelect">
+            <option value="">Carregando...</option>
+          </select>
+        </div>
+
+        <div class="control">
+          <label>Buscar (cliente / sistema / PRP / texto)</label>
+          <input id="searchInput" type="text" placeholder="Ex: SAP, Ale, ITGC..." />
+        </div>
+
+        <div class="btnrow">
+          <button class="btn ghost" id="btnReset" title="Limpa todos os filtros">Limpar</button>
+        </div>
+
+        <div class="btnrow">
+          <button class="btn ghost hidden" id="clearTypeBtn" title="Limpar filtro de tipo">Tipo: limpar</button>
+        </div>
+
+        <div class="separator"></div>
+
+        <div class="btnrow">
+          <input type="file" id="csvFile1" accept=".csv" class="hidden" />
+          <button class="btn primary" id="btnLoadCsv1" title="Carregar CSV principal com coluna ID">📂 Carregar CSV
+            Principal</button>
+        </div>
+
+        <div class="btnrow">
+          <input type="file" id="csvFile2" accept=".csv" class="hidden" />
+          <button class="btn primary" id="btnLoadCsv2" title="Carregar CSV complementar com coluna DemandaId">📂
+            Carregar CSV Complementar</button>
+        </div>
+
+        <div class="btnrow">
+          <div id="csvStatus" class="filehint" style="font-size: 0.85rem; margin-top: 4px;">
+            CSV Principal: ❌ | CSV Complementar: ❌
+          </div>
+        </div>
+
+        <div class="btnrow">
+          <button class="btn ghost" id="btnExportJson" title="Baixar dados atuais como JSON">💾 Exportar JSON</button>
+        </div>
+
+        <!-- <div class="filehint">
+          ✅ <b>Funciona abrindo o HTML direto</b> (file://).<br />
+          Se não estiver servindo via HTTP, use <b>Carregar CSV</b> para atualizar os dados do dia.<br />
+          Dica: você também pode hospedar essa pasta em um servidor simples (intranet) e o arquivo
+          <code>data/tasks.json</code>
+          será carregado automaticamente.
+        </div> -->
+
+        <div class="footer-meta">
+          <div class="badge" id="badgeTotal">—</div>
+          <div class="badge" id="badgeAdm">—</div>
+          <div class="badge" id="badgeUpdated">—</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Principal -->
+    <main class="main">
+      <div class="topbar">
+        <div class="title-pill">MÓDULO DE GESTÃO DE TAREFAS - ESFORÇO × HORAS</div>
+        <div class="top-actions">
+          <a href="graphs.html" class="action-chip" title="Gráficos (visual)"
+            style="text-decoration:none"><span>Gráficos</span></a>
+        </div>
+      </div>
+
+      <div id="banner" class="action-chip hidden" style="margin-bottom: 14px;"></div>
+
+      <div class="type-row" id="typeRow">
+        <!-- Cartões de tipos injetados por JS -->
+      </div>
+
+      <section class="board" id="board" aria-label="Quadro Kanban">
+        <!-- Colunas injetadas por JS -->
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-label="Detalhes da demanda">
+    <div class="modal">
+      <div class="mhead">
+        <div>
+          <h2 id="modalTitle">—</h2>
+          <div class="small" id="modalSubtitle"></div>
+        </div>
+        <button class="close" id="modalClose">Fechar</button>
+      </div>
+
+      <div class="grid" id="modalGrid"></div>
+      <div class="note" id="modalNote"></div>
+    </div>
+  </div>
+
+  <!-- Amostra embutida (usada quando não há data/tasks.json e nenhum cache ainda) -->
+  <script>
+    window.__PPC_SAMPLE__ = [{ "Nome do Solicitante": "Victorr", "Nome Cliente": "Cliente X", "Área Solicitante": "Intelidados", "Email do solicitante": "victor.rodrigues@ppc.com.br", "Tipo de Demanda": "Auditoria de TI", "Cybersecurity": "", "Auditoria TI": "", "Consultoria de TI": "", "Intelidados": "[\"I1 - BI\"]", "Demanda Interna (PPeC)": "", "Outros": "", "Formato de Trabalho": "Entendimento de TI (Indagação)", "ID - PRP (RentSoft)": "asda15102", "Período Escopo (Inicial)": "1/5/2026", "Período Escopo (Final)": "1/9/2026", "Sistema em Escopo": "PowerBI", "Detalhe da demanda (Escopo)": "Dashboard executivo para Intelidados", "Data Início (Previsão)": "1/19/2026", "Data Conclusão (Previsão)": "1/30/2026", "Horas": "60", "Orçamento / Valor Demanda": "R$ 15,110.00", "Email Sócio": "victor.rodrigues@ppc.com.br", "Email Gerente": "victor.rodrigues@ppc.com.br", "Email Encarregado": "victor.rodrigues@ppc.com.br", "Contato Cliente": "Ale", "Email Cliente": "victor.rodrigues@ppc.com.br", "IDPlanner": "SAMP1", "Status": "Em Avaliação", "Horas ADM": "40", "Aprovação Demanda": "Sim", "Responsável Demanda": "Higor Dias Sanches", "Horas Projeto (Responsável Demanda)": "10", "Horas Adm (Responsável Demanda)": "10", "Trainee do Projeto": "Dominique Lima de Freitas", "Horas Adm (Trainee)": "10", "Horas Projeto (Trainee)": "10", "Responsável Cyber": "Larissa Santos de Freitas", "Horas Adm (Cyber)": "10", "Horas Projeto (Cyber)": "10", "Responsável Intelidados": "Higor Dias Sanches Sapacosta", "Horas Adm (Intelidados)": "10", "Horas Projeto (Intelidados)": "10" }, { "Nome do Solicitante": "Victorr", "Nome Cliente": "Cliente Y", "Área Solicitante": "Cyber", "Email do solicitante": "victor.rodrigues@ppc.com.br", "Tipo de Demanda": "Auditoria de TI", "Cybersecurity": "[\"C3 - IAM\"]", "Auditoria TI": "", "Consultoria de TI": "", "Intelidados": "", "Demanda Interna (PPeC)": "", "Outros": "", "Formato de Trabalho": "Entendimento de TI (Indagação)", "ID - PRP (RentSoft)": "asda15102", "Período Escopo (Inicial)": "1/5/2026", "Período Escopo (Final)": "1/9/2026", "Sistema em Escopo": "Azure AD", "Detalhe da demanda (Escopo)": "Revisão de permissões e hardening", "Data Início (Previsão)": "1/19/2026", "Data Conclusão (Previsão)": "1/30/2026", "Horas": "50", "Orçamento / Valor Demanda": "R$ 15,110.00", "Email Sócio": "victor.rodrigues@ppc.com.br", "Email Gerente": "victor.rodrigues@ppc.com.br", "Email Encarregado": "victor.rodrigues@ppc.com.br", "Contato Cliente": "Ale", "Email Cliente": "victor.rodrigues@ppc.com.br", "IDPlanner": "SAMP2", "Status": "Bloqueado", "Horas ADM": "18", "Aprovação Demanda": "Sim", "Responsável Demanda": "Larissa Santos", "Horas Projeto (Responsável Demanda)": "10", "Horas Adm (Responsável Demanda)": "10", "Trainee do Projeto": "Dominique Lima de Freitas", "Horas Adm (Trainee)": "10", "Horas Projeto (Trainee)": "10", "Responsável Cyber": "Larissa Santos de Freitas", "Horas Adm (Cyber)": "10", "Horas Projeto (Cyber)": "10", "Responsável Intelidados": "Higor Dias Sanches Sapacosta", "Horas Adm (Intelidados)": "10", "Horas Projeto (Intelidados)": "10" }, { "Nome do Solicitante": "Victorr", "Nome Cliente": "Cliente Z", "Área Solicitante": "Consultoria", "Email do solicitante": "victor.rodrigues@ppc.com.br", "Tipo de Demanda": "Auditoria de TI", "Cybersecurity": "", "Auditoria TI": "", "Consultoria de TI": "[\"CT1 - Infra\"]", "Intelidados": "", "Demanda Interna (PPeC)": "", "Outros": "", "Formato de Trabalho": "Entendimento de TI (Indagação)", "ID - PRP (RentSoft)": "asda15102", "Período Escopo (Inicial)": "1/5/2026", "Período Escopo (Final)": "1/9/2026", "Sistema em Escopo": "SAP", "Detalhe da demanda (Escopo)": "Análise de controles TI e evidências", "Data Início (Previsão)": "1/19/2026", "Data Conclusão (Previsão)": "1/30/2026", "Horas": "80", "Orçamento / Valor Demanda": "R$ 15,110.00", "Email Sócio": "victor.rodrigues@ppc.com.br", "Email Gerente": "victor.rodrigues@ppc.com.br", "Email Encarregado": "victor.rodrigues@ppc.com.br", "Contato Cliente": "Ale", "Email Cliente": "victor.rodrigues@ppc.com.br", "IDPlanner": "SAMP3", "Status": "Em Andamento", "Horas ADM": "22", "Aprovação Demanda": "Sim", "Responsável Demanda": "Victor Hugo Dias Rodrigues", "Horas Projeto (Responsável Demanda)": "10", "Horas Adm (Responsável Demanda)": "10", "Trainee do Projeto": "Dominique Lima de Freitas", "Horas Adm (Trainee)": "10", "Horas Projeto (Trainee)": "10", "Responsável Cyber": "Larissa Santos de Freitas", "Horas Adm (Cyber)": "10", "Horas Projeto (Cyber)": "10", "Responsável Intelidados": "Higor Dias Sanches Sapacosta", "Horas Adm (Intelidados)": "10", "Horas Projeto (Intelidados)": "10" }, { "Nome do Solicitante": "Victorr", "Nome Cliente": "Cliente W", "Área Solicitante": "Auditoria", "Email do solicitante": "victor.rodrigues@ppc.com.br", "Tipo de Demanda": "Auditoria de TI", "Cybersecurity": "", "Auditoria TI": "[\"P11 - ITGC\"]", "Consultoria de TI": "", "Intelidados": "", "Demanda Interna (PPeC)": "", "Outros": "", "Formato de Trabalho": "Entendimento de TI (Indagação)", "ID - PRP (RentSoft)": "asda15102", "Período Escopo (Inicial)": "1/5/2026", "Período Escopo (Final)": "1/9/2026", "Sistema em Escopo": "TOTVS", "Detalhe da demanda (Escopo)": "Testes finais do escopo", "Data Início (Previsão)": "1/19/2026", "Data Conclusão (Previsão)": "1/30/2026", "Horas": "30", "Orçamento / Valor Demanda": "R$ 15,110.00", "Email Sócio": "victor.rodrigues@ppc.com.br", "Email Gerente": "victor.rodrigues@ppc.com.br", "Email Encarregado": "victor.rodrigues@ppc.com.br", "Contato Cliente": "Ale", "Email Cliente": "victor.rodrigues@ppc.com.br", "IDPlanner": "SAMP4", "Status": "Teste", "Horas ADM": "12", "Aprovação Demanda": "Sim", "Responsável Demanda": "Dominique Lima", "Horas Projeto (Responsável Demanda)": "10", "Horas Adm (Responsável Demanda)": "10", "Trainee do Projeto": "Dominique Lima de Freitas", "Horas Adm (Trainee)": "10", "Horas Projeto (Trainee)": "10", "Responsável Cyber": "Larissa Santos de Freitas", "Horas Adm (Cyber)": "10", "Horas Projeto (Cyber)": "10", "Responsável Intelidados": "Higor Dias Sanches Sapacosta", "Horas Adm (Intelidados)": "10", "Horas Projeto (Intelidados)": "10" }, { "Nome do Solicitante": "Victorr", "Nome Cliente": "PPeC", "Área Solicitante": "Interno", "Email do solicitante": "victor.rodrigues@ppc.com.br", "Tipo de Demanda": "Auditoria de TI", "Cybersecurity": "", "Auditoria TI": "", "Consultoria de TI": "", "Intelidados": "", "Demanda Interna (PPeC)": "[\"D1 - Processos\"]", "Outros": "", "Formato de Trabalho": "Entendimento de TI (Indagação)", "ID - PRP (RentSoft)": "asda15102", "Período Escopo (Inicial)": "1/5/2026", "Período Escopo (Final)": "1/9/2026", "Sistema em Escopo": "Planner", "Detalhe da demanda (Escopo)": "Padronização do input diário", "Data Início (Previsão)": "1/19/2026", "Data Conclusão (Previsão)": "1/30/2026", "Horas": "20", "Orçamento / Valor Demanda": "R$ 15,110.00", "Email Sócio": "victor.rodrigues@ppc.com.br", "Email Gerente": "victor.rodrigues@ppc.com.br", "Email Encarregado": "victor.rodrigues@ppc.com.br", "Contato Cliente": "Ale", "Email Cliente": "victor.rodrigues@ppc.com.br", "IDPlanner": "SAMP5", "Status": "Concluído", "Horas ADM": "8", "Aprovação Demanda": "Sim", "Responsável Demanda": "Higor Teste", "Horas Projeto (Responsável Demanda)": "10", "Horas Adm (Responsável Demanda)": "10", "Trainee do Projeto": "Dominique Lima de Freitas", "Horas Adm (Trainee)": "10", "Horas Projeto (Trainee)": "10", "Responsável Cyber": "Larissa Santos de Freitas", "Horas Adm (Cyber)": "10", "Horas Projeto (Cyber)": "10", "Responsável Intelidados": "Higor Dias Sanches Sapacosta", "Horas Adm (Intelidados)": "10", "Horas Projeto (Intelidados)": "10" }, { "Nome do Solicitante": "Victorr", "Nome Cliente": "Cliente Q", "Área Solicitante": "Outros", "Email do solicitante": "victor.rodrigues@ppc.com.br", "Tipo de Demanda": "Auditoria de TI", "Cybersecurity": "", "Auditoria TI": "", "Consultoria de TI": "", "Intelidados": "", "Demanda Interna (PPeC)": "", "Outros": "[\"O1\"]", "Formato de Trabalho": "Entendimento de TI (Indagação)", "ID - PRP (RentSoft)": "asda15102", "Período Escopo (Inicial)": "1/5/2026", "Período Escopo (Final)": "1/9/2026", "Sistema em Escopo": "—", "Detalhe da demanda (Escopo)": "Demanda cancelada pelo cliente", "Data Início (Previsão)": "1/19/2026", "Data Conclusão (Previsão)": "1/30/2026", "Horas": "10", "Orçamento / Valor Demanda": "R$ 15,110.00", "Email Sócio": "victor.rodrigues@ppc.com.br", "Email Gerente": "victor.rodrigues@ppc.com.br", "Email Encarregado": "victor.rodrigues@ppc.com.br", "Contato Cliente": "Ale", "Email Cliente": "victor.rodrigues@ppc.com.br", "IDPlanner": "SAMP6", "Status": "Cancelado", "Horas ADM": "4", "Aprovação Demanda": "Sim", "Responsável Demanda": "Victor Hugo Dias Rodrigues", "Horas Projeto (Responsável Demanda)": "10", "Horas Adm (Responsável Demanda)": "10", "Trainee do Projeto": "Dominique Lima de Freitas", "Horas Adm (Trainee)": "10", "Horas Projeto (Trainee)": "10", "Responsável Cyber": "Larissa Santos de Freitas", "Horas Adm (Cyber)": "10", "Horas Projeto (Cyber)": "10", "Responsável Intelidados": "Higor Dias Sanches Sapacosta", "Horas Adm (Intelidados)": "10", "Horas Projeto (Intelidados)": "10" }, { "Nome do Solicitante": "Victorr", "Nome Cliente": "Ale", "Área Solicitante": "Auditoria", "Email do solicitante": "victor.rodrigues@ppc.com.br", "Tipo de Demanda": "Auditoria de TI", "Cybersecurity": "", "Auditoria TI": "[\"P11 - ITGC\"]", "Consultoria de TI": "", "Intelidados": "", "Demanda Interna (PPeC)": "", "Outros": "", "Formato de Trabalho": "Entendimento de TI (Indagação)", "ID - PRP (RentSoft)": "asda15102", "Período Escopo (Inicial)": "1/5/2026", "Período Escopo (Final)": "1/9/2026", "Sistema em Escopo": "SAP", "Detalhe da demanda (Escopo)": "TEste VR", "Data Início (Previsão)": "1/19/2026", "Data Conclusão (Previsão)": "1/30/2026", "Horas": "80", "Orçamento / Valor Demanda": "R$ 15,110.00", "Email Sócio": "victor.rodrigues@ppc.com.br", "Email Gerente": "victor.rodrigues@ppc.com.br", "Email Encarregado": "victor.rodrigues@ppc.com.br", "Contato Cliente": "Ale", "Email Cliente": "victor.rodrigues@ppc.com.br", "IDPlanner": "ePurqF9byU2K6ZSvXgHEXGUALqnQ", "Status": "Em Avaliação", "Horas ADM": "80", "Aprovação Demanda": "Sim", "Responsável Demanda": "Victor Hugo Dias Rodrigues", "Horas Projeto (Responsável Demanda)": "10", "Horas Adm (Responsável Demanda)": "10", "Trainee do Projeto": "Dominique Lima de Freitas", "Horas Adm (Trainee)": "10", "Horas Projeto (Trainee)": "10", "Responsável Cyber": "Larissa Santos de Freitas", "Horas Adm (Cyber)": "10", "Horas Projeto (Cyber)": "10", "Responsável Intelidados": "Higor Dias Sanches Sapacosta", "Horas Adm (Intelidados)": "10", "Horas Projeto (Intelidados)": "10" }];
+  </script>
+
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+
+</html>
