@@ -99,3 +99,6 @@ async function initApp() {
         if (loadingOverlay) loadingOverlay.classList.add("hidden");
     }
 }
+
+// Escuta o evento de carregamento do DOM para rodar a função
+document.addEventListener("DOMContentLoaded", initApp);
