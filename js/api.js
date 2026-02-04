@@ -51,22 +51,7 @@ const api = {
         }
     },
 
-    async uploadCSV(file) {
-        const formData = new FormData();
-        formData.append("file", file);
-
-        try {
-            const resp = await fetch(`${API_BASE_URL}/upload_csv`, {
-                method: "POST",
-                body: formData
-            });
-            if (!resp.ok) throw new Error(`Falha no Upload: ${resp.status}`);
-            return await resp.json();
-        } catch (e) {
-            console.error("Upload de CSV falhou:", e);
-            throw e;
-        }
-    }
+    // Upload CSV removido
 };
 
 // Expor globalmente
@@ -77,9 +62,19 @@ window.api = api;
    Aciona as APIs ao carregar a página
    ========================= */
 
+
+
 async function initApp() {
     console.log("Iniciando carregamento de dados...");
+    const loadingOverlay = document.getElementById("loadingOverlay");
+
+    // Garantir que o overlay apareça
+    if (loadingOverlay) loadingOverlay.classList.remove("hidden");
+
     try {
+        // Delay artificial de 3 segundos (solicitado pelo usuário para resolver problema de carregamento)
+        await new Promise(r => setTimeout(r, 3000));
+
         // Promise.all executa ambas as chamadas simultaneamente
         const [tarefas, apontamentos] = await Promise.all([
             api.getTasks(),
@@ -89,11 +84,18 @@ async function initApp() {
         console.log("✅ Tarefas carregadas:", tarefas);
         console.log("✅ Apontamentos carregados:", apontamentos);
 
+        // Envia dados para o app.js processar e renderizar
+        if (window.updateTasksFromApi) {
+            window.updateTasksFromApi(tarefas, apontamentos);
+        } else {
+            console.error("❌ Função window.updateTasksFromApi não encontrada em app.js");
+        }
+
     } catch (error) {
         console.error("❌ Erro na inicialização:", error);
-        alert("Não foi possível conectar ao servidor Flask.");
+        alert("Não foi possível conectar ao servidor Flask ou carregar os dados. Verifique a conexão.");
+    } finally {
+        // Esconder overlay independentemente do sucesso ou falha
+        if (loadingOverlay) loadingOverlay.classList.add("hidden");
     }
 }
-
-// Escuta o evento de carregamento do DOM para rodar a função
-document.addEventListener("DOMContentLoaded", initApp);

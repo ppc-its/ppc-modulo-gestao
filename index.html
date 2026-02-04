@@ -7,10 +7,17 @@
   <title>PPeC • Gestão de Tarefas — Esforço × Horas</title>
   <link rel="icon" href="assets/logo.png" />
   <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/loading.css" />
 </head>
 
 <body>
   <div class="app">
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+      <div class="spinner"></div>
+      <div class="loading-text">Carregando modulo de gestão...</div>
+    </div>
+
     <!-- Barra Lateral -->
     <aside class="sidebar">
       <div class="brand">
@@ -44,23 +51,7 @@
 
         <div class="separator"></div>
 
-        <div class="btnrow">
-          <input type="file" id="csvFile1" accept=".csv" class="hidden" />
-          <button class="btn primary" id="btnLoadCsv1" title="Carregar CSV principal com coluna ID">📂 Carregar CSV
-            Principal</button>
-        </div>
-
-        <div class="btnrow">
-          <input type="file" id="csvFile2" accept=".csv" class="hidden" />
-          <button class="btn primary" id="btnLoadCsv2" title="Carregar CSV complementar com coluna DemandaId">📂
-            Carregar CSV Complementar</button>
-        </div>
-
-        <div class="btnrow">
-          <div id="csvStatus" class="filehint" style="font-size: 0.85rem; margin-top: 4px;">
-            CSV Principal: ❌ | CSV Complementar: ❌
-          </div>
-        </div>
+        <!-- CSV Uploads Removed -->
 
         <div class="btnrow">
           <button class="btn ghost" id="btnExportJson" title="Baixar dados atuais como JSON">💾 Exportar JSON</button>
@@ -126,9 +117,9 @@
   </script>
 
 </body>
-  <script src="js/api.js"></script>
-  <script src="js/checklist.js"></script>
-  <script src="js/app.js"></script>
+<script src="js/api.js"></script>
+<script src="js/checklist.js"></script>
+<script src="js/app.js"></script>
 </body>
 
 </html>
