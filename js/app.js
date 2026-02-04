@@ -99,125 +99,48 @@ function normalizeRow(row) {
   const demandType = detectDemandType(row);
   const status = normalizeStatus(row["Status"]);
 
-  // 1. update de normalizeRow (linhas 101)
-  const responsible = safeStr(row["Responsável Demanda"]); // Removidos fallbacks para emails/clientes
-
+  const responsible = safeStr(row["Responsável Demanda"]); 
   const client = safeStr(row["Nome Cliente"]) || safeStr(row["Contato Cliente"]) || "";
+  
   const scopeSystem = safeStr(row["Sistema em Escopo"]);
   const prpId = safeStr(row["ID - PRP (RentSoft)"]);
-  const title = scopeSystem ? scopeSystem : (safeStr(row["Detalhe da demanda (Escopo)"]).slice(0, 48) || prpId || "Demanda");
+  
+  const titleDetail = scopeSystem ? scopeSystem : (safeStr(row["Detalhe da demanda (Escopo)"]).slice(0, 48) || prpId || "Demanda");
 
-  // PRIORIZAR DADOS DO CSV2 SE DISPONÍVEIS
   const csv2Details = row["_csv2Details"];
-
   let hoursAdm, hoursTotal, hoursProject, start, end;
 
   if (csv2Details) {
-    // USAR DADOS DO CSV2 (prioritário)
     hoursAdm = csv2Details.horasAdmTotal || 0;
     hoursTotal = csv2Details.horasTotal || 0;
-    hoursProject = csv2Details.horasProjetoTotal || 0; // Novo campo
+    hoursProject = csv2Details.horasProjetoTotal || 0;
     start = csv2Details.dataInicio || safeStr(row["Data Início (Previsão)"]);
     end = csv2Details.dataFim || safeStr(row["Data Conclusão (Previsão)"]);
-
-    console.log(`[normalizeRow] Usando CSV2 para ID ${safeStr(row["ID"])}: ${hoursTotal}h total (${hoursAdm}h ADM, ${hoursProject}h PROJ)`);
   } else {
-    // FALLBACK: Usar dados do CSV1
-    hoursAdm = toNumber(row["Horas ADM"]);
-    hoursTotal = toNumber(row["Horas"]);
-    hoursProject = Math.max(0, hoursTotal - hoursAdm); // Derivado no fallback
+    hoursAdm = toNumber(row["Horas ADM"]); // Se a API não mandar 'Horas ADM', retornará 0
+    hoursTotal = toNumber(row["Horas"]);   // Chave exata vinda da API
+    hoursProject = Math.max(0, hoursTotal - hoursAdm); 
     start = safeStr(row["Data Início (Previsão)"]);
     end = safeStr(row["Data Conclusão (Previsão)"]);
   }
 
   const id = safeStr(row["id"]) || prpId || crypto.randomUUID();
-  // const numericId = Number(row.id || prpId || crypto.randomUUID());
-
 
   return {
     id: id,
     demandType,
     status,
-    title: client || safeStr(row["Área Solicitante"]) || "",
-    subtitle: title,
-    hoursAdm,
-    hoursProject, // Expor
+    title: client || safeStr(row["Área Solicitante"]) || "Cliente não identificado",
+    subtitle: titleDetail,
+    hoursProject,
     hoursTotal,
     responsible,
-    raw: row,
+    raw: row, // Mantemos o objeto original da API para referência
     dates: { start, end }
   };
 }
 
-/* -------- Parse de CSV (robusto o suficiente para o arquivo diário) -------- */
-function parseCSV(text) {
-  // Lida com vírgulas, aspas e quebras de linha em campos entre aspas.
-  const rows = [];
-  let i = 0, field = "", row = [], inQuotes = false;
-
-  while (i < text.length) {
-    const c = text[i];
-
-    if (inQuotes) {
-      if (c === '"') {
-        const next = text[i + 1];
-        if (next === '"') { // aspas escapadas
-          field += '"';
-          i += 2;
-          continue;
-        } else {
-          inQuotes = false;
-          i++;
-          continue;
-        }
-      } else {
-        field += c;
-        i++;
-        continue;
-      }
-    } else {
-      if (c === '"') {
-        inQuotes = true;
-        i++;
-        continue;
-      }
-      if (c === ',') {
-        row.push(field);
-        field = "";
-        i++;
-        continue;
-      }
-      if (c === '\r') {
-        i++;
-        continue;
-      }
-      if (c === '\n') {
-        row.push(field);
-        rows.push(row);
-        row = [];
-        field = "";
-        i++;
-        continue;
-      }
-      field += c;
-      i++;
-    }
-  }
-  // última linha
-  if (field.length || row.length) {
-    row.push(field);
-    rows.push(row);
-  }
-
-  const header = rows.shift()?.map(h => h.trim()) || [];
-  const data = rows.filter(r => r.some(x => String(x ?? "").trim().length)).map(r => {
-    const obj = {};
-    header.forEach((h, idx) => obj[h] = r[idx] ?? "");
-    return obj;
-  });
-
-  return data;
-}
+// Funções de parseCSV REMOVIDAS (não mais utilizadas no front)
 
 /* -------- Estado -------- */
 let tasks = [];
@@ -422,38 +345,32 @@ function renderTaskCard(t) {
   el.className = "task";
   el.draggable = true;
   el.addEventListener("dragstart", (e) => handleDragStart(e, t));
+  
   const avatar = initials(t.responsible);
-
-  const projHours = t.hoursProject || 0; // Usar hoursProject explícito (calculado no normalizeRow)
+  const projHours = t.hoursProject || 0;
   const admHours = t.hoursAdm || 0;
   const totalHours = t.hoursTotal || 0;
 
-  // tags: tipo de demanda + horas ADM + horas Projeto + Total
-  const tagType = `<div class="tag">${t.demandType}</div>`;
-  const tagAdm = `<div class="tag" style="background:#e0f7fa; color:#006064;">${admHours.toFixed(0)}h ADM</div>`;
-  const tagProj = projHours > 0 ? `<div class="tag" style="background:#fff3e0; color:#e65100;">${projHours.toFixed(0)}h Projeto</div>` : "";
-  const tagTot = totalHours > 0 ? `<div class="tag" style="font-weight:bold;">${totalHours.toFixed(0)}h Total</div>` : "";
-
   el.innerHTML = `
     <div class="top">
-      <div>
-        <div class="title">${escapeHTML(t.title)}</div>
-        <div class="sub">${escapeHTML(t.subtitle)}${t.responsible ? " • " + escapeHTML(t.responsible) : ""}</div>
+      <div style="flex:1; min-width:0;">
+        <div class="title" title="${escapeHTML(t.title)}">${escapeHTML(t.title)}</div>
+        <div class="sub">${escapeHTML(t.subtitle)}</div>
+        <div class="responsible-label">👤 ${escapeHTML(t.responsible || 'Sem responsável')}</div>
       </div>
       <div class="avatar" title="${escapeHTML(t.responsible)}">${escapeHTML(avatar)}</div>
     </div>
     <div class="hours">
-      ${tagType}
-      ${tagAdm}
-      ${tagProj}
-      ${tagTot}
+      <div class="tag">${t.demandType}</div>
+      ${admHours > 0 ? `<div class="tag" style="background:#e0f7fa; color:#006064;">${admHours.toFixed(0)}h ADM</div>` : ''}
+      ${projHours > 0 ? `<div class="tag" style="background:#fff3e0; color:#e65100;">${projHours.toFixed(0)}h Proj</div>` : ''}
+      <div class="tag" style="font-weight:bold; background:#eee;">${totalHours.toFixed(0)}h Tot</div>
     </div>
   `;
 
   el.addEventListener("click", () => openModal(t));
   return el;
 }
-
 function escapeHTML(str) {
   const s = safeStr(str);
   return s.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
@@ -758,203 +675,7 @@ function loadCsv2FromLocalStorage() {
   }
 }
 
-/**
- * Agrega dados do CSV2 por DemandaId
- * CSV2 tem múltiplas linhas por demanda (uma por colaborador)
- */
-function aggregateCsv2ByDemandaId(csv2) {
-  const aggregated = new Map();
-
-  if (!csv2 || !Array.isArray(csv2)) return aggregated;
-
-  // Mapeamento flexível de colunas
-  const findCol = (row, words) => {
-    const keys = Object.keys(row);
-    for (const word of words) {
-      const found = keys.find(k => k.toLowerCase().trim() === word.toLowerCase());
-      if (found) return row[found];
-    }
-    return null;
-  };
-
-  csv2.forEach(row => {
-    const demandaId = safeStr(findCol(row, ["DemandaId", "ID Demanda", "Codigo Demanda", "Demanda ID"]));
-    if (!demandaId) return;
-
-    // Extrair dados da linha com fallbacks robustos
-    const dataStr = safeStr(findCol(row, ["Data", "Data de Lançamento", "Data Lancamento"]));
-    const horasStr = findCol(row, ["Horas", "Quantidade de Horas", "Horas Lançadas", "Vlr Lançamento"]);
-    const horas = toNumber(horasStr);
-
-    const tipoHoraStr = safeStr(findCol(row, ["Tipo da hora", "Tipo de hora", "Tipo Hora", "Categoria de hora"])).toLowerCase();
-    const colaborador = safeStr(findCol(row, ["Colaborador", "Nome Colaborador", "Profissional", "Nome do Colaborador"]));
-    const responsabilidades = safeStr(findCol(row, ["Responsabilidades", "Responsabilidade", "Função", "Cargo"]));
-
-    // Normalizar tipo de hora
-    let isAdm = tipoHoraStr.includes("adm") || tipoHoraStr.includes("administrativo");
-
-    // Inicializar agregação se não existir
-    if (!aggregated.has(demandaId)) {
-      aggregated.set(demandaId, {
-        horasAdmTotal: 0,
-        horasProjetoTotal: 0,
-        horasTotal: 0,
-        datas: [],
-        colaboradores: [],
-        lancamentos: [] // Novo: Armazenar lançamentos individuais
-      });
-    }
-
-    const agg = aggregated.get(demandaId);
-
-    // Acumular horas por tipo (Totais)
-    agg.horasTotal += horas;
-    if (isAdm) {
-      agg.horasAdmTotal += horas;
-    } else {
-      agg.horasProjetoTotal += horas; // Fallback para Projeto
-    }
-
-    // Coletar datas
-    if (dataStr) {
-      agg.datas.push(dataStr);
-    }
-
-    // Novo: Guardar lançamento granular
-    agg.lancamentos.push({
-      date: dataStr,
-      hours: horas,
-      person: colaborador,
-      type: isAdm ? 'adm' : 'project'
-    });
-
-    // Adicionar colaborador (verificar se já existe)
-    const existingColabIndex = agg.colaboradores.findIndex(c =>
-      c.colaborador === colaborador && c.responsabilidades === responsabilidades
-    );
-
-    if (existingColabIndex >= 0) {
-      // Colaborador já existe, acumular horas
-      const colab = agg.colaboradores[existingColabIndex];
-      colab.horasTotal += horas;
-      if (isAdm) {
-        colab.horasAdm += horas;
-      } else {
-        colab.horasProjeto += horas;
-      }
-    } else {
-      // Novo colaborador
-      agg.colaboradores.push({
-        colaborador,
-        responsabilidades,
-        horasAdm: isAdm ? horas : 0,
-        horasProjeto: !isAdm ? horas : 0,
-        horasTotal: horas
-      });
-    }
-  });
-
-  // Calcular range de datas para cada demanda
-  aggregated.forEach((agg, demandaId) => {
-    if (agg.datas.length > 0) {
-      // Tentar ordenar datas (assume formato que permita ordenação léxica ou tenta converter)
-      agg.datas.sort();
-      agg.dataInicio = agg.datas[0];
-      agg.dataFim = agg.datas[agg.datas.length - 1];
-    }
-  });
-
-  console.log(`[CSV2 Aggregation] ${aggregated.size} demandas processadas das ${csv2.length} linhas do CSV2.`);
-  return aggregated;
-}
-
-/**
- * Mescla CSV2 no CSV1 baseado na relação ID (CSV1) ↔ DemandaId (CSV2)
- * Estratégia: CSV1 como base, CSV2 substitui apenas campos específicos
- * @param {Array} csv1 - Array de objetos do CSV principal (com coluna ID)
- * @param {Array} csv2 - Array de objetos do CSV complementar (com coluna DemandaId)
- * @returns {Array} - Array mesclado
- */
-function mergeCsvData(csv1, csv2) {
-  if (!csv1 || !Array.isArray(csv1)) return [];
-  if (!csv2 || !Array.isArray(csv2)) return csv1;
-
-  // Agregar CSV2 por DemandaId
-  const csv2Aggregated = aggregateCsv2ByDemandaId(csv2);
-
-  console.log(`[CSV Merge] CSV1 records: ${csv1.length}, CSV2 aggregated demands: ${csv2Aggregated.size}`);
-
-  // Mesclar CSV2 agregado em CSV1
-  const merged = csv1.map(row1 => {
-    const id = safeStr(row1["ID"] || row1["id"] || row1["Id"]);
-
-    if (id && csv2Aggregated.has(id)) {
-      const csv2Data = csv2Aggregated.get(id);
-
-      // Criar objeto mesclado: CSV1 como base
-      const mergedRow = { ...row1 };
-
-      // Substituir campos específicos com dados do CSV2
-      mergedRow["Horas ADM"] = csv2Data.horasAdmTotal;
-      mergedRow["Horas"] = csv2Data.horasTotal;
-      mergedRow["Horas Projeto"] = csv2Data.horasProjetoTotal;
-
-      // Mapear colaboradores para campos de responsáveis
-      // Ordenar por horas totais (maior primeiro)
-      const colaboradoresOrdenados = [...csv2Data.colaboradores].sort((a, b) => b.horasTotal - a.horasTotal);
-
-      // Mapear responsabilidades conhecidas
-      const responsabilidadesMap = {
-        "responsável demanda": "Responsável Demanda",
-        "trainee do projeto": "Trainee do Projeto",
-        "responsável cyber": "Responsável Cyber",
-        "responsável intelidados": "Responsável Intelidados",
-        "responsável desenvolvimento": "Responsável Desenvolvimento",
-        "sócio responsável": "Sócio Responsável",
-        "gerente responsável": "Gerente Responsável"
-      };
-
-      // Limpar campos antigos do CSV1
-      Object.keys(responsabilidadesMap).forEach(key => {
-        const fieldName = responsabilidadesMap[key];
-        delete mergedRow[fieldName];
-        delete mergedRow[`Horas Projeto (${fieldName})`];
-        delete mergedRow[`Horas Adm (${fieldName})`];
-      });
-
-      // Preencher com dados do CSV2
-      colaboradoresOrdenados.forEach(colab => {
-        const respKey = colab.responsabilidades.toLowerCase();
-        const fieldName = responsabilidadesMap[respKey];
-
-        if (fieldName) {
-          mergedRow[fieldName] = colab.colaborador;
-          mergedRow[`Horas Projeto (${fieldName})`] = colab.horasProjeto;
-          mergedRow[`Horas Adm (${fieldName})`] = colab.horasAdm;
-        }
-      });
-
-      // Adicionar detalhes completos do CSV2 para uso no modal
-      mergedRow["_csv2Details"] = {
-        lancamentos: csv2Data.lancamentos, // CRUCIAL para gráficos precisos
-        colaboradores: csv2Data.colaboradores,
-        dataInicio: csv2Data.dataInicio,
-        dataFim: csv2Data.dataFim,
-        horasAdmTotal: csv2Data.horasAdmTotal,
-        horasProjetoTotal: csv2Data.horasProjetoTotal,
-        horasTotal: csv2Data.horasTotal
-      };
-
-      console.log(`[CSV Merge] Matched ID: ${id} - ${csv2Data.colaboradores.length} colaboradores, ${csv2Data.horasTotal}h total`);
-      return mergedRow;
-    }
-
-    return row1; // Sem correspondência, retorna apenas CSV1
-  });
-
-  console.log(`[CSV Merge] Merged ${merged.length} records`);
-  return merged;
-}
+// Funções de CSV removidas
 
 function updateCsvStatus() {
   const statusEl = $("#csvStatus");
@@ -1170,42 +891,66 @@ function bindEvents() {
   }
 }
 
+// New Init using API
 async function init() {
   loadFilters();
   bindEvents();
+  updateCsvStatus(); // Mostra o status inicial dos CSVs
 
-  // Carregar CSVs salvos do localStorage
-  csv1Data = loadCsv1FromLocalStorage();
-  csv2Data = loadCsv2FromLocalStorage();
-  updateCsvStatus();
-
-  // Carregamento da API
+  console.log("Iniciando carregamento de dados via API...");
   try {
-    const list = await api.getTasks();
-    tasks = normalizeTasks(list);
+    // 1. Busca os dados da API (Ajustado para o nome correto da sua função)
+    const data = await api.getTasks(); 
+    
+    // 2. Normaliza os dados usando a normalizeTasks
+    tasks = normalizeTasks(data);
+    
+    // 3. Atualiza metadados e UI
     setUpdatedMeta(new Date().toISOString());
-    // SYNC: Salvar o estado da API no LS para que gráficos vejam imediatamente (e vejam a mesma versão)
-    saveToLocalStorage(tasks);
-    hideBanner();
-  } catch (err) {
-    console.warn("API load failed, falling back to sample or empty", err);
-
-    // Se temos CSVs carregados, usar dados mesclados
-    if (csv1Data) {
-      const mergedData = mergeCsvData(csv1Data, csv2Data);
-      tasks = normalizeTasks(mergedData);
-      setBanner("Modo Local: Usando dados dos CSVs carregados. (API indisponível)", "info");
-    } else {
-      setBanner("Erro ao carregar dados da API. Mostrando exemplo estático.", "error");
-      if (window.__PPC_SAMPLE__) {
-        tasks = normalizeTasks(window.__PPC_SAMPLE__);
-      }
+    populatePeopleDropdown();
+    syncControls(); // Garante que os inputs reflitam o 'filters' carregado
+    render();
+    
+    console.log("Inicialização via API concluída.", tasks.length, "tarefas.");
+  } catch (e) {
+    console.error("Erro fatal ao carregar dados da API:", e);
+    
+    // Fallback para LocalStorage se a API falhar
+    const cachedTasks = loadFromLocalStorage();
+    if (cachedTasks) {
+      tasks = normalizeTasks(cachedTasks);
+      render();
+      setBanner("Aviso: Mostrando dados do cache local (API offline).", "info");
+    } else if (window.__PPC_SAMPLE__) {
+      tasks = normalizeTasks(window.__PPC_SAMPLE__);
+      render();
+      setBanner("Aviso: Mostrando dados de amostra.", "info");
     }
   }
+}
 
-  populatePeopleDropdown();
-  syncControls();
-  render();
+function mergeData(tasksList, apontamentosList) {
+  if (!Array.isArray(tasksList)) return [];
+  if (!Array.isArray(apontamentosList)) return tasksList;
+
+  // Criar mapa de apontamentos por ID da demanda
+  // Assumindo que o apontamento tem um campo 'DemandaId' ou similar que bate com o ID da tarefa
+  const map = new Map();
+  apontamentosList.forEach(a => {
+    // Tenta encontrar o ID no apontamento. Ajuste o campo conforme o retorno real da API.
+    const key = String(a.DemandaId || a.demanda_id || a.id || "").trim();
+    if (key) map.set(key, a);
+  });
+
+  return tasksList.map(task => {
+    // Tenta identificar o ID da tarefa
+    const taskId = String(task.id || task.ID || task["ID"] || "").trim();
+    if (map.has(taskId)) {
+      // Anexa os detalhes do apontamento (CSV2) no objeto da tarefa para o normalizeRow usar
+      task._csv2Details = map.get(taskId);
+    }
+    return task;
+  });
 }
 
 /**
@@ -1216,10 +961,7 @@ function normalizeTasks(list) {
   return list.map(t => {
     // Se parece com nosso objeto 'task' interno (tem id, título...), use-o.
     // Se parece com uma linha CSV raw, normalize-a.
-    // O backend pode retornar linhas Raw CSV ou objetos processados. 
-    // Assumindo que backend retorna uma lista de dicionários correspondendo às colunas CSV ou a estrutura interna.
-    // Vamos assumir que o backend retorna as linhas raw principalmente, similar à estrutura tasks.json.
-    if (t.raw) return t; // Já processado
+    if (t.raw && t.status) return t; // Já processado
     return normalizeRow(t);
   });
 }
