@@ -22,7 +22,8 @@ const TYPE_ORDER = [
 
 const LOCAL_STORAGE_KEY = "ppc_task_board_data_v1";
 const LOCAL_FILTERS_KEY = "ppc_task_board_filters_v1";
-// CSV keys removed
+const LOCAL_CSV1_KEY = "ppc_csv1_data_v1";
+const LOCAL_CSV2_KEY = "ppc_csv2_data_v1";
 
 function $(sel, el = document) { return el.querySelector(sel); }
 function $$(sel, el = document) { return [...el.querySelectorAll(sel)]; }
@@ -98,13 +99,30 @@ function normalizeRow(row) {
   const demandType = detectDemandType(row);
   const status = normalizeStatus(row["Status"]);
 
-  const responsible = safeStr(row["Responsável Demanda"]);
+  const responsible = safeStr(row["Responsável Demanda"]); 
   const client = safeStr(row["Nome Cliente"]) || safeStr(row["Contato Cliente"]) || "";
-
+  
   const scopeSystem = safeStr(row["Sistema em Escopo"]);
   const prpId = safeStr(row["ID - PRP (RentSoft)"]);
-
+  
   const titleDetail = scopeSystem ? scopeSystem : (safeStr(row["Detalhe da demanda (Escopo)"]).slice(0, 48) || prpId || "Demanda");
+
+  const csv2Details = row["_csv2Details"];
+  let hoursAdm, hoursTotal, hoursProject, start, end;
+
+  if (csv2Details) {
+    hoursAdm = csv2Details.horasAdmTotal || 0;
+    hoursTotal = csv2Details.horasTotal || 0;
+    hoursProject = csv2Details.horasProjetoTotal || 0;
+    start = csv2Details.dataInicio || safeStr(row["Data Início (Previsão)"]);
+    end = csv2Details.dataFim || safeStr(row["Data Conclusão (Previsão)"]);
+  } else {
+    hoursAdm = toNumber(row["Horas ADM"]); // Se a API não mandar 'Horas ADM', retornará 0
+    hoursTotal = toNumber(row["Horas"]);   // Chave exata vinda da API
+    hoursProject = Math.max(0, hoursTotal - hoursAdm); 
+    start = safeStr(row["Data Início (Previsão)"]);
+    end = safeStr(row["Data Conclusão (Previsão)"]);
+  }
 
   const id = safeStr(row["id"]) || prpId || crypto.randomUUID();
 
@@ -114,20 +132,20 @@ function normalizeRow(row) {
     status,
     title: client || safeStr(row["Área Solicitante"]) || "Cliente não identificado",
     subtitle: titleDetail,
-    hoursProject: toNumber(row["Horas Projeto"]) || 0, // Fallback safe
-    hoursTotal: toNumber(row["Horas"]) || 0,
-    hoursAdm: toNumber(row["Horas ADM"]) || 0,
+    hoursProject,
+    hoursTotal,
     responsible,
-    raw: row,
-    dates: {
-      start: safeStr(row["Data Início (Previsão)"]),
-      end: safeStr(row["Data Conclusão (Previsão)"])
-    }
+    raw: row, // Mantemos o objeto original da API para referência
+    dates: { start, end }
   };
 }
 
-// Funções de CSV / merge removidas
-const tasks = []; // Estado local mantido em memória
+// Funções de parseCSV REMOVIDAS (não mais utilizadas no front)
+
+/* -------- Estado -------- */
+let tasks = [];
+let csv1Data = null; // CSV Principal (com coluna ID)
+let csv2Data = null; // CSV Complementar (com coluna DemandaId)
 let filters = {
   person: "",
   demandType: "",
@@ -327,7 +345,7 @@ function renderTaskCard(t) {
   el.className = "task";
   el.draggable = true;
   el.addEventListener("dragstart", (e) => handleDragStart(e, t));
-
+  
   const avatar = initials(t.responsible);
   const projHours = t.hoursProject || 0;
   const admHours = t.hoursAdm || 0;
@@ -359,7 +377,7 @@ function escapeHTML(str) {
 }
 
 /* -------- Modal -------- */
-function openModal(task) {
+async function openModal(task) {
   $("#modalTitle").textContent = `${task.title}`;
   $("#modalSubtitle").textContent = `${task.subtitle || ""}`;
 
@@ -380,30 +398,16 @@ function openModal(task) {
     ["Aprovação", safeStr(task.raw?.["Aprovação Demanda"]) || "—"],
   ];
 
-  // Campos extras solicitados (Responsáveis e Horas)
-  // Campos extras DINÂMICOS baseados no CSV2
   const csv2Details = task.raw?.["_csv2Details"];
 
   if (csv2Details && csv2Details.colaboradores && csv2Details.colaboradores.length > 0) {
     csv2Details.colaboradores.forEach(colab => {
-      // Adiciona Responsável
       kvs.push([`Responsável (${colab.responsabilidades})`, colab.colaborador]);
-
-      // Adiciona Horas se houver
-      if (colab.horasProjeto > 0) {
-        kvs.push([`Horas Projeto (${colab.responsabilidades})`, `${colab.horasProjeto.toFixed(0)}h`]);
-      }
-      if (colab.horasAdm > 0) {
-        kvs.push([`Horas ADM (${colab.responsabilidades})`, `${colab.horasAdm.toFixed(0)}h`]);
-      }
+      if (colab.horasProjeto > 0) kvs.push([`Horas Projeto (${colab.responsabilidades})`, `${colab.horasProjeto.toFixed(0)}h`]);
+      if (colab.horasAdm > 0) kvs.push([`Horas ADM (${colab.responsabilidades})`, `${colab.horasAdm.toFixed(0)}h`]);
     });
   } else {
-    // Fallback mínimo se não tiver CSV2 (opcional, ou não mostrar nada)
-    // Se quiser manter comportamento antigo de mostrar se existir no raw do CSV1:
-    const oldFields = [
-      "Responsável Demanda", "Responsável Cyber", "Responsável Intelidados",
-      "Trainee do Projeto", "Responsável Desenvolvimento"
-    ];
+    const oldFields = ["Responsável Demanda", "Responsável Cyber", "Responsável Intelidados", "Trainee do Projeto", "Responsável Desenvolvimento"];
     oldFields.forEach(key => {
       const val = safeStr(task.raw?.[key]);
       if (val) kvs.push([key, val]);
@@ -419,8 +423,6 @@ function openModal(task) {
     grid.appendChild(d);
   });
 
-  // Adicionar detalhamento do CSV2 se disponível (Variável já declarada acima)
-  // const csv2Details = task.raw?.["_csv2Details"];
   if (csv2Details && csv2Details.colaboradores && csv2Details.colaboradores.length > 0) {
     const detailsSection = document.createElement("div");
     detailsSection.style.marginTop = "20px";
@@ -433,7 +435,6 @@ function openModal(task) {
     title.style.fontSize = "1.1rem";
     detailsSection.appendChild(title);
 
-    // Informações de período
     if (csv2Details.dataInicio && csv2Details.dataFim) {
       const periodo = document.createElement("p");
       periodo.textContent = `Período: ${csv2Details.dataInicio} → ${csv2Details.dataFim}`;
@@ -443,7 +444,6 @@ function openModal(task) {
       detailsSection.appendChild(periodo);
     }
 
-    // Tabela de colaboradores
     const table = document.createElement("table");
     table.style.width = "100%";
     table.style.borderCollapse = "collapse";
@@ -466,7 +466,6 @@ function openModal(task) {
       const tr = document.createElement("tr");
       tr.style.borderBottom = "1px solid #eee";
       if (idx % 2 === 0) tr.style.background = "#fafafa";
-
       tr.innerHTML = `
         <td style="padding: 8px;">${escapeHTML(colab.colaborador)}</td>
         <td style="padding: 8px;">${escapeHTML(colab.responsabilidades)}</td>
@@ -478,7 +477,6 @@ function openModal(task) {
     });
     table.appendChild(tbody);
 
-    // Linha de totais
     const tfoot = document.createElement("tfoot");
     tfoot.innerHTML = `
       <tr style="background: #e8f4f8; border-top: 2px solid #ddd; font-weight: bold;">
@@ -489,7 +487,6 @@ function openModal(task) {
       </tr>
     `;
     table.appendChild(tfoot);
-
     detailsSection.appendChild(table);
     grid.appendChild(detailsSection);
   }
@@ -497,7 +494,7 @@ function openModal(task) {
   const desc = safeStr(task.raw?.["Detalhe da demanda (Escopo)"]);
   $("#modalNote").textContent = desc || "Sem detalhes adicionais.";
 
-  // Checklist Container
+  // --- Lógica de Checklist Atualizada com API ---
   let checklistContainer = $("#checklistContainer");
   if (!checklistContainer) {
     checklistContainer = document.createElement("div");
@@ -506,91 +503,24 @@ function openModal(task) {
     $("#modalNote").after(checklistContainer);
   }
 
-  // Renderizar Checklist
-  renderChecklist(task, checklistContainer);
+  // Exibe estado de carregamento
+  checklistContainer.innerHTML = "<p style='padding:10px; color:#666;'>⏳ Carregando checklist...</p>";
 
+  // Abre o modal primeiro para não parecer travado
   $("#modalBackdrop").classList.add("show");
+
+  // Busca dados da API e renderiza
+  try {
+    const apiTasks = await loadChecklistFromAPI(task.id);
+    task.checklist = apiTasks; // Atualiza o objeto da task na memória
+    renderChecklist(task, checklistContainer);
+  } catch (err) {
+    checklistContainer.innerHTML = "<p style='color:red;'>Erro ao carregar checklist.</p>";
+  }
 }
 
 function closeModal() {
   $("#modalBackdrop").classList.remove("show");
-}
-
-/* -------- Checklist Logic -------- */
-function renderChecklist(task, container) {
-  // Garantir array de checklist
-  if (!task.checklist) task.checklist = [];
-
-  container.innerHTML = `
-    <div class="checklist-title">
-      <span>✅</span> Checklist da Demanda
-    </div>
-    <div class="checklist-items" id="checklistItems"></div>
-    <div class="checklist-input-row">
-      <span style="font-size:16px;">➕</span>
-      <input type="text" class="checklist-add-input" placeholder="Adicionar nova etapa (Enter)..." id="checklistInput">
-    </div>
-  `;
-
-  const itemsContainer = container.querySelector("#checklistItems");
-
-  task.checklist.forEach((item, index) => {
-    const itemEl = document.createElement("div");
-    itemEl.className = "checklist-item";
-    itemEl.innerHTML = `
-      <input type="checkbox" class="checklist-checkbox" ${item.done ? "checked" : ""}>
-      <input type="text" class="checklist-text ${item.done ? "done" : ""}" value="${escapeHTML(item.text)}">
-       <button class="checklist-delete" title="Remover item">✖</button>
-    `;
-
-    // Eventos do Item
-    const checkbox = itemEl.querySelector(".checklist-checkbox");
-    checkbox.addEventListener("change", () => {
-      item.done = checkbox.checked;
-      itemEl.querySelector(".checklist-text").classList.toggle("done", item.done);
-      saveChecklist(task);
-    });
-
-    const textInput = itemEl.querySelector(".checklist-text");
-    textInput.addEventListener("change", () => {
-      item.text = textInput.value;
-      saveChecklist(task);
-    });
-
-    const delBtn = itemEl.querySelector(".checklist-delete");
-    delBtn.addEventListener("click", () => {
-      task.checklist.splice(index, 1);
-      saveChecklist(task);
-      renderChecklist(task, container); // Re-render para atualizar índices
-    });
-
-    itemsContainer.appendChild(itemEl);
-  });
-
-  // Evento de Adicionar
-  const addInput = container.querySelector("#checklistInput");
-  addInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && addInput.value.trim()) {
-      task.checklist.push({ text: addInput.value.trim(), done: false });
-      saveChecklist(task);
-      renderChecklist(task, container);
-      // Manter foco no input após re-render? 
-      // O re-render destroi o input. 
-      // Melhor: focar no novo input criado após render
-      setTimeout(() => {
-        const newInput = container.querySelector("#checklistInput");
-        if (newInput) newInput.focus();
-      }, 0);
-    }
-  });
-}
-
-function saveChecklist(task) {
-  // A task já é uma referência ao objeto dentro do array global 'tasks' ou 'APP_DATA'?
-  // Em app.js, 'tasks' é a variável global. O objeto 'task' passado para openModal vem dela?
-  // Sim, openModal é chamado com objetos de 'tasks'.
-  // Então, basta salvar 'tasks' no LocalStorage.
-  saveToLocalStorage(tasks);
 }
 
 /* -------- Carregamento de dados -------- */
@@ -620,11 +550,54 @@ function saveToLocalStorage(taskList) {
   }));
 }
 
-// CSV persistence functions removed
+/* -------- Dual CSV Management -------- */
+function saveCsv1ToLocalStorage(data) {
+  localStorage.setItem(LOCAL_CSV1_KEY, JSON.stringify({
+    updatedAt: new Date().toISOString(),
+    data: data,
+  }));
+}
+
+function saveCsv2ToLocalStorage(data) {
+  localStorage.setItem(LOCAL_CSV2_KEY, JSON.stringify({
+    updatedAt: new Date().toISOString(),
+    data: data,
+  }));
+}
+
+function loadCsv1FromLocalStorage() {
+  try {
+    const raw = localStorage.getItem(LOCAL_CSV1_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    return obj.data || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function loadCsv2FromLocalStorage() {
+  try {
+    const raw = localStorage.getItem(LOCAL_CSV2_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    return obj.data || null;
+  } catch (_) {
+    return null;
+  }
+}
 
 // Funções de CSV removidas
 
-// CSV Status update removed
+function updateCsvStatus() {
+  const statusEl = $("#csvStatus");
+  if (!statusEl) return;
+
+  const csv1Status = csv1Data ? "✅" : "❌";
+  const csv2Status = csv2Data ? "✅" : "❌";
+
+  statusEl.textContent = `CSV Principal: ${csv1Status} | CSV Complementar: ${csv2Status}`;
+}
 
 function setUpdatedMeta(tsISO) {
   const d = tsISO ? new Date(tsISO) : new Date();
@@ -714,73 +687,159 @@ function bindEvents() {
     syncControls();
     render();
   });
-}
 
-/* -------- Listeners -------- */
-// Listeners de CSV removidos
+  // --- Upload de CSV Duplo ---
+  const btnLoadCsv1 = $("#btnLoadCsv1");
+  const fileInput1 = $("#csvFile1");
+  const btnLoadCsv2 = $("#btnLoadCsv2");
+  const fileInput2 = $("#csvFile2");
 
-// Expor função para API atualizar a lista
-window.updateTasksFromApi = function (apiTasks, apiApontamentos) {
-  // Mescla simples: Vamos assumir que a API já traz tudo estruturado ou que fazemos o merge que o 'normalizeRow' fazia
-  // O ideal agora é que normalizeRow trate os dados vindos da API.
-  // Como simplificação, vamos recriar a lógica de merge de apontamentos nos tasks aqui, ou no normalizeRow.
+  // Handler para CSV1 (Principal - com coluna ID)
+  if (btnLoadCsv1 && fileInput1) {
+    btnLoadCsv1.addEventListener("click", () => fileInput1.click());
 
-  // Convertendo apontamentos para mapa para busca rápida
-  const apontamentosMap = new Map();
-  if (Array.isArray(apiApontamentos)) {
-    apiApontamentos.forEach(a => {
-      // Supondo que apontamento tem chave para linkar. 
-      // Na versão CSV era 'DemandaId' vs 'ID' ou similar.
-      // Precisamos saber a chave de ligação.
-      // O código anterior usava `api.getApontamentos` que retornava `apontamentos`.
-      // O código de merge antigo (não visível fully acima) usava csv2Details. 
-      // Vamos assumir que apiApontamentos é uma lista de objetos que podem ser ligados.
-      // Se não tivermos a lógica de merge clara aqui, vamos apenas passar tasks
-      // Mas o cliente pediu para funcionar.
-      // Vamos passar o objeto cru para o normalizeRow processar se possível, ou fazer o merge aqui.
-      // O código anterior de `normalizeRow` usava row["_csv2Details"].
-      // Vamos tentar replicar isso.
-      if (a.demanda_id) { // Ajustar conforme a chave real da API
-        apontamentosMap.set(String(a.demanda_id), a);
-      }
+    fileInput1.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const text = evt.target.result;
+        try {
+          const rawData = parseCSV(text);
+          csv1Data = rawData;
+          saveCsv1ToLocalStorage(rawData);
+
+          console.log(`[CSV1] Loaded ${rawData.length} records`);
+
+          // Mesclar com CSV2 se disponível
+          const mergedData = mergeCsvData(csv1Data, csv2Data);
+          tasks = normalizeTasks(mergedData);
+
+          // Salvar tarefas mescladas
+          saveToLocalStorage(tasks);
+
+          // Atualizar UI
+          setUpdatedMeta(new Date().toISOString());
+          populatePeopleDropdown();
+          syncControls();
+          render();
+          updateCsvStatus();
+
+          setBanner("CSV Principal carregado com sucesso! " + (csv2Data ? "Dados mesclados com CSV Complementar." : "Aguardando CSV Complementar para mesclar."), "success");
+        } catch (err) {
+          console.error(err);
+          alert("Erro ao ler CSV Principal: " + err.message);
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = "";
     });
   }
 
-  // Processar tarefas
-  tasks = apiTasks.map(t => {
-    // Tenta achar apontamentos/detalhes extras
-    const id = String(t.id || t.ID || "");
+  // Handler para CSV2 (Complementar - com coluna DemandaId)
+  if (btnLoadCsv2 && fileInput2) {
+    btnLoadCsv2.addEventListener("click", () => fileInput2.click());
 
-    // Se a API de apontamentos retorna algo, acoplamos
-    // Nota: O código original de mergeCsvData não foi lido totalmente, mas o normalizeRow esperava row["_csv2Details"]
-    // Vamos manter essa convenção temporária
+    fileInput2.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
 
-    // Simulação de merge: como não temos a chave exata de join garantida sem ver o backend,
-    // vamos processar com o que temos.
-    // Se apiTasks já vierem completos do back, melhor.
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const text = evt.target.result;
+        try {
+          const rawData = parseCSV(text);
+          csv2Data = rawData;
+          saveCsv2ToLocalStorage(rawData);
 
-    return normalizeRow(t);
-  });
+          console.log(`[CSV2] Loaded ${rawData.length} records`);
 
-  console.log(`[App] Updated ${tasks.length} tasks from API.`);
-  setUpdatedMeta(new Date().toISOString());
-  populatePeopleDropdown();
-  syncControls();
-  render();
-  hideBanner();
-};
+          // Mesclar com CSV1 se disponível
+          if (csv1Data) {
+            const mergedData = mergeCsvData(csv1Data, csv2Data);
+            tasks = normalizeTasks(mergedData);
 
+            // Salvar tarefas mescladas
+            saveToLocalStorage(tasks);
+
+            // Atualizar UI
+            setUpdatedMeta(new Date().toISOString());
+            populatePeopleDropdown();
+            syncControls();
+            render();
+            updateCsvStatus();
+
+            setBanner("CSV Complementar carregado e mesclado com sucesso!", "success");
+          } else {
+            updateCsvStatus();
+            setBanner("CSV Complementar carregado. Aguardando CSV Principal para mesclar.", "info");
+          }
+        } catch (err) {
+          console.error(err);
+          alert("Erro ao ler CSV Complementar: " + err.message);
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = "";
+    });
+  }
+
+  // --- Exportar JSON ---
+  const btnExport = $("#btnExportJson");
+  if (btnExport) {
+    btnExport.addEventListener("click", () => {
+      const dataStr = JSON.stringify({ tasks, exportedAt: new Date() }, null, 2);
+      const blob = new Blob([dataStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ppc_tasks_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+  }
+}
 
 // New Init using API
-// Init only sets up UI, data comes from API.js via updateTasksFromApi
 async function init() {
   loadFilters();
   bindEvents();
-  // updateCsvStatus(); // Removed
+  updateCsvStatus(); // Mostra o status inicial dos CSVs
 
-  console.log("App inicializado. Aguardando dados da API...");
+  console.log("Iniciando carregamento de dados via API...");
+  try {
+    // 1. Busca os dados da API (Ajustado para o nome correto da sua função)
+    const data = await api.getTasks(); 
+    
+    // 2. Normaliza os dados usando a normalizeTasks
+    tasks = normalizeTasks(data);
+    
+    // 3. Atualiza metadados e UI
+    setUpdatedMeta(new Date().toISOString());
+    populatePeopleDropdown();
+    syncControls(); // Garante que os inputs reflitam o 'filters' carregado
+    render();
+    
+    console.log("Inicialização via API concluída.", tasks.length, "tarefas.");
+  } catch (e) {
+    console.error("Erro fatal ao carregar dados da API:", e);
+    
+    // Fallback para LocalStorage se a API falhar
+    const cachedTasks = loadFromLocalStorage();
+    if (cachedTasks) {
+      tasks = normalizeTasks(cachedTasks);
+      render();
+      setBanner("Aviso: Mostrando dados do cache local (API offline).", "info");
+    } else if (window.__PPC_SAMPLE__) {
+      tasks = normalizeTasks(window.__PPC_SAMPLE__);
+      render();
+      setBanner("Aviso: Mostrando dados de amostra.", "info");
+    }
+  }
 }
-
 
 function mergeData(tasksList, apontamentosList) {
   if (!Array.isArray(tasksList)) return [];
