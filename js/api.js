@@ -34,7 +34,7 @@ const api = {
         try {
             const payload = {};
             if (updates.status !== undefined) {
-                payload["field_28"] = updates.status;
+                payload["Status"] = updates.status;
             }
 
             const resp = await fetch(`${API_BASE_URL}/demanda/${id}`, {
