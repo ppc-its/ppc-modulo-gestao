@@ -23,7 +23,7 @@ const api = {
             const resp = await fetch(`${API_BASE_URL}/apontamentos`);
             if (!resp.ok) throw new Error(`Erro na API: ${resp.status}`);
             const apontamentos = await resp.json();
-            return Array.isArray(apontamentos) ? apontamentos : (apontamentos.tasks || []);
+            return Array.isArray(apontamentos) ? apontamentos : (apontamentos.apontamentos || []);
         } catch (e) {
             console.error("Falha ao buscar apontamentos:", e);
             throw e;
@@ -88,9 +88,6 @@ async function initApp() {
 
         console.log("✅ Tarefas carregadas:", tarefas);
         console.log("✅ Apontamentos carregados:", apontamentos);
-
-        // Se você tiver uma função que desenha o Kanban ou a lista, chame-a aqui:
-        // exemplo: renderizarTela(tarefas, apontamentos);
 
     } catch (error) {
         console.error("❌ Erro na inicialização:", error);

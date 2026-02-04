@@ -99,52 +99,43 @@ function normalizeRow(row) {
   const demandType = detectDemandType(row);
   const status = normalizeStatus(row["Status"]);
 
-  // 1. update de normalizeRow (linhas 101)
-  const responsible = safeStr(row["Responsável Demanda"]); // Removidos fallbacks para emails/clientes
-
+  const responsible = safeStr(row["Responsável Demanda"]); 
   const client = safeStr(row["Nome Cliente"]) || safeStr(row["Contato Cliente"]) || "";
+  
   const scopeSystem = safeStr(row["Sistema em Escopo"]);
   const prpId = safeStr(row["ID - PRP (RentSoft)"]);
-  const title = scopeSystem ? scopeSystem : (safeStr(row["Detalhe da demanda (Escopo)"]).slice(0, 48) || prpId || "Demanda");
+  
+  const titleDetail = scopeSystem ? scopeSystem : (safeStr(row["Detalhe da demanda (Escopo)"]).slice(0, 48) || prpId || "Demanda");
 
-  // PRIORIZAR DADOS DO CSV2 SE DISPONÍVEIS
   const csv2Details = row["_csv2Details"];
-
   let hoursAdm, hoursTotal, hoursProject, start, end;
 
   if (csv2Details) {
-    // USAR DADOS DO CSV2 (prioritário)
     hoursAdm = csv2Details.horasAdmTotal || 0;
     hoursTotal = csv2Details.horasTotal || 0;
-    hoursProject = csv2Details.horasProjetoTotal || 0; // Novo campo
+    hoursProject = csv2Details.horasProjetoTotal || 0;
     start = csv2Details.dataInicio || safeStr(row["Data Início (Previsão)"]);
     end = csv2Details.dataFim || safeStr(row["Data Conclusão (Previsão)"]);
-
-    console.log(`[normalizeRow] Usando CSV2 para ID ${safeStr(row["ID"])}: ${hoursTotal}h total (${hoursAdm}h ADM, ${hoursProject}h PROJ)`);
   } else {
-    // FALLBACK: Usar dados do CSV1
-    hoursAdm = toNumber(row["Horas ADM"]);
-    hoursTotal = toNumber(row["Horas"]);
-    hoursProject = Math.max(0, hoursTotal - hoursAdm); // Derivado no fallback
+    hoursAdm = toNumber(row["Horas ADM"]); // Se a API não mandar 'Horas ADM', retornará 0
+    hoursTotal = toNumber(row["Horas"]);   // Chave exata vinda da API
+    hoursProject = Math.max(0, hoursTotal - hoursAdm); 
     start = safeStr(row["Data Início (Previsão)"]);
     end = safeStr(row["Data Conclusão (Previsão)"]);
   }
 
   const id = safeStr(row["id"]) || prpId || crypto.randomUUID();
-  // const numericId = Number(row.id || prpId || crypto.randomUUID());
-
 
   return {
     id: id,
     demandType,
     status,
-    title: client || safeStr(row["Área Solicitante"]) || "",
-    subtitle: title,
-    hoursAdm,
-    hoursProject, // Expor
+    title: client || safeStr(row["Área Solicitante"]) || "Cliente não identificado",
+    subtitle: titleDetail,
+    hoursProject,
     hoursTotal,
     responsible,
-    raw: row,
+    raw: row, // Mantemos o objeto original da API para referência
     dates: { start, end }
   };
 }
@@ -354,38 +345,32 @@ function renderTaskCard(t) {
   el.className = "task";
   el.draggable = true;
   el.addEventListener("dragstart", (e) => handleDragStart(e, t));
+  
   const avatar = initials(t.responsible);
-
-  const projHours = t.hoursProject || 0; // Usar hoursProject explícito (calculado no normalizeRow)
+  const projHours = t.hoursProject || 0;
   const admHours = t.hoursAdm || 0;
   const totalHours = t.hoursTotal || 0;
 
-  // tags: tipo de demanda + horas ADM + horas Projeto + Total
-  const tagType = `<div class="tag">${t.demandType}</div>`;
-  const tagAdm = `<div class="tag" style="background:#e0f7fa; color:#006064;">${admHours.toFixed(0)}h ADM</div>`;
-  const tagProj = projHours > 0 ? `<div class="tag" style="background:#fff3e0; color:#e65100;">${projHours.toFixed(0)}h Projeto</div>` : "";
-  const tagTot = totalHours > 0 ? `<div class="tag" style="font-weight:bold;">${totalHours.toFixed(0)}h Total</div>` : "";
-
   el.innerHTML = `
     <div class="top">
-      <div>
-        <div class="title">${escapeHTML(t.title)}</div>
-        <div class="sub">${escapeHTML(t.subtitle)}${t.responsible ? " • " + escapeHTML(t.responsible) : ""}</div>
+      <div style="flex:1; min-width:0;">
+        <div class="title" title="${escapeHTML(t.title)}">${escapeHTML(t.title)}</div>
+        <div class="sub">${escapeHTML(t.subtitle)}</div>
+        <div class="responsible-label">👤 ${escapeHTML(t.responsible || 'Sem responsável')}</div>
       </div>
       <div class="avatar" title="${escapeHTML(t.responsible)}">${escapeHTML(avatar)}</div>
     </div>
     <div class="hours">
-      ${tagType}
-      ${tagAdm}
-      ${tagProj}
-      ${tagTot}
+      <div class="tag">${t.demandType}</div>
+      ${admHours > 0 ? `<div class="tag" style="background:#e0f7fa; color:#006064;">${admHours.toFixed(0)}h ADM</div>` : ''}
+      ${projHours > 0 ? `<div class="tag" style="background:#fff3e0; color:#e65100;">${projHours.toFixed(0)}h Proj</div>` : ''}
+      <div class="tag" style="font-weight:bold; background:#eee;">${totalHours.toFixed(0)}h Tot</div>
     </div>
   `;
 
   el.addEventListener("click", () => openModal(t));
   return el;
 }
-
 function escapeHTML(str) {
   const s = safeStr(str);
   return s.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
@@ -910,18 +895,36 @@ function bindEvents() {
 async function init() {
   loadFilters();
   bindEvents();
+  updateCsvStatus(); // Mostra o status inicial dos CSVs
 
   try {
-    const data = await api.getAllData();
+    // 1. Busca os dados da API (Ajustado para o nome correto da sua função)
+    const data = await api.getTasks(); 
+    
+    // 2. Normaliza os dados usando a normalizeTasks
     tasks = normalizeTasks(data);
+    
+    // 3. Atualiza metadados e UI
     setUpdatedMeta(new Date().toISOString());
     populatePeopleDropdown();
+    syncControls(); // Garante que os inputs reflitam o 'filters' carregado
     render();
+    
     console.log("Inicialização via API concluída.", tasks.length, "tarefas.");
   } catch (e) {
-    console.error("Erro fatal ao carregar dados:", e);
-    setBanner("Erro ao carregar dados do servidor. Verifique o console.", "error");
-    // Fallback para tarefas vazias ou sample se desejar
+    console.error("Erro fatal ao carregar dados da API:", e);
+    
+    // Fallback para LocalStorage se a API falhar
+    const cachedTasks = loadFromLocalStorage();
+    if (cachedTasks) {
+      tasks = normalizeTasks(cachedTasks);
+      render();
+      setBanner("Aviso: Mostrando dados do cache local (API offline).", "info");
+    } else if (window.__PPC_SAMPLE__) {
+      tasks = normalizeTasks(window.__PPC_SAMPLE__);
+      render();
+      setBanner("Aviso: Mostrando dados de amostra.", "info");
+    }
   }
 }
 
