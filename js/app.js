@@ -897,6 +897,7 @@ async function init() {
   bindEvents();
   updateCsvStatus(); // Mostra o status inicial dos CSVs
 
+  console.log("Iniciando carregamento de dados via API...");
   try {
     // 1. Busca os dados da API (Ajustado para o nome correto da sua função)
     const data = await api.getTasks(); 
@@ -928,6 +929,30 @@ async function init() {
   }
 }
 
+function mergeData(tasksList, apontamentosList) {
+  if (!Array.isArray(tasksList)) return [];
+  if (!Array.isArray(apontamentosList)) return tasksList;
+
+  // Criar mapa de apontamentos por ID da demanda
+  // Assumindo que o apontamento tem um campo 'DemandaId' ou similar que bate com o ID da tarefa
+  const map = new Map();
+  apontamentosList.forEach(a => {
+    // Tenta encontrar o ID no apontamento. Ajuste o campo conforme o retorno real da API.
+    const key = String(a.DemandaId || a.demanda_id || a.id || "").trim();
+    if (key) map.set(key, a);
+  });
+
+  return tasksList.map(task => {
+    // Tenta identificar o ID da tarefa
+    const taskId = String(task.id || task.ID || task["ID"] || "").trim();
+    if (map.has(taskId)) {
+      // Anexa os detalhes do apontamento (CSV2) no objeto da tarefa para o normalizeRow usar
+      task._csv2Details = map.get(taskId);
+    }
+    return task;
+  });
+}
+
 /**
  * Helper para normalizar uma lista de tarefas raw ou semi-raw
  */
@@ -936,10 +961,7 @@ function normalizeTasks(list) {
   return list.map(t => {
     // Se parece com nosso objeto 'task' interno (tem id, título...), use-o.
     // Se parece com uma linha CSV raw, normalize-a.
-    // O backend pode retornar linhas Raw CSV ou objetos processados. 
-    // Assumindo que backend retorna uma lista de dicionários correspondendo às colunas CSV ou a estrutura interna.
-    // Vamos assumir que o backend retorna as linhas raw principalmente, similar à estrutura tasks.json.
-    if (t.raw) return t; // Já processado
+    if (t.raw && t.status) return t; // Já processado
     return normalizeRow(t);
   });
 }
