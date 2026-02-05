@@ -51,7 +51,7 @@ function renderChecklist(task, container) {
     if (e.key === "Enter" && addInput.value.trim()) {
       const texto = addInput.value.trim();
 
-      await fetch("/checklist/", {
+      await fetch("http://localhost:5000/checklist/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -70,7 +70,7 @@ function renderChecklist(task, container) {
 
 async function loadChecklistFromAPI(demandaId) {
   try {
-    const response = await fetch(`/checklist/${Number(demandaId)}`);
+    const response = await fetch(`http://localhost:5000/checklist/${Number(demandaId)}`);
     if (!response.ok) throw new Error("Falha ao carregar checklist");
 
     const data = await response.json();
@@ -98,7 +98,7 @@ async function saveChecklist(task) {
   };
 
   try {
-    const response = await fetch("/checklist/", {
+    const response = await fetch("http://localhost:5000/checklist/", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -117,7 +117,7 @@ async function saveChecklist(task) {
 }
 
 async function atualizarTituloChecklist(itemId, titulo) {
-  await fetch(`/checklist/${itemId}`, {
+  await fetch(`http://localhost:5000/checklist/${itemId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ titulo })
@@ -125,7 +125,7 @@ async function atualizarTituloChecklist(itemId, titulo) {
 }
 
 async function atualizarStatusChecklist(itemId, concluido) {
-  await fetch(`/checklist/${itemId}`, {
+  await fetch(`http://localhost:5000/checklist/${itemId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ concluido })
