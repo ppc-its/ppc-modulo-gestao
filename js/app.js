@@ -355,37 +355,34 @@ function renderTaskCard(t) {
   el.draggable = true;
   el.addEventListener("dragstart", (e) => handleDragStart(e, t));
 
-  const avatarStr = t.participants && t.participants.length > 0
-    ? t.participants.map(p => initials(p.name)).slice(0, 2).join("+")
-    : initials(t.responsible);
-
   const projHours = t.hoursProject || 0;
   const admHours = t.hoursAdm || 0;
   const totalHours = t.hoursTotal || 0;
 
-  const participantsHtml = (t.participants || []).map(p => `
-    <div style="display:flex; justify-content:space-between; font-size:0.73rem; color:#333; margin-top:2px;">
-      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;" title="${escapeHTML(p.name)}">👤 ${escapeHTML(p.name)}</span>
-      <span style="font-weight:bold; margin-left:6px; background:#f0f0f0; padding:0 4px; border-radius:3px;">${p.hours.toFixed(1)}h</span>
-    </div>
-    <div style="font-size:0.65rem; color:#888; margin-left:14px; margin-bottom:4px; line-height:1.1;">${escapeHTML(p.role)}</div>
-  `).join("");
+  // Gerar avatares para o stack no canto superior
+  const avatars = (t.participants || []).map(p => {
+    const init = initials(p.name);
+    return `<div class="avatar-mini" title="${escapeHTML(p.name)}">${escapeHTML(init)}</div>`;
+  }).join("");
+
+  // Fallback se não houver participantes alocados
+  const avatarStackHtml = avatars || `<div class="avatar-mini" title="${escapeHTML(t.responsible)}">${escapeHTML(initials(t.responsible))}</div>`;
 
   el.innerHTML = `
     <div class="top">
       <div style="flex:1; min-width:0;">
         <div class="title" title="${escapeHTML(t.title)}">${escapeHTML(t.title)}</div>
-        <div class="sub" style="margin-bottom:8px;">${escapeHTML(t.subtitle)}</div>
-        <div class="participants-list">
-          ${participantsHtml || `<div class="responsible-label">👤 ${escapeHTML(t.responsible || 'Sem responsável')}</div>`}
-        </div>
+        <div class="sub">${escapeHTML(t.subtitle)}</div>
       </div>
-      <div class="avatar" style="font-size:0.7rem;" title="${escapeHTML(t.responsible)}">${escapeHTML(avatarStr)}</div>
+      <div class="avatar-stack">
+        ${avatarStackHtml}
+      </div>
     </div>
-    <div class="hours" style="margin-top:8px;">
-      <div class="tag">${t.demandType}</div>
-      ${admHours > 0 ? `<div class="tag" style="background:#e0f7fa; color:#006064;">${admHours.toFixed(1)}h ADM</div>` : ''}
-      <div class="tag" style="font-weight:bold; background:#eee;">${totalHours.toFixed(1)}h Tot</div>
+    <div class="hours-grid">
+      <div class="tag tag-type">${escapeHTML(t.demandType)}</div>
+      ${admHours > 0 ? `<div class="tag tag-adm">${admHours.toFixed(0)}h ADM</div>` : ''}
+      <div class="tag tag-project">${projHours.toFixed(0)}h Projeto</div>
+      <div class="tag tag-total">${totalHours.toFixed(0)}h Total</div>
     </div>
   `;
 
