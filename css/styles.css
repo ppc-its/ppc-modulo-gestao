@@ -461,7 +461,7 @@ select {
   font-size: 0.65rem;
   font-weight: 800;
   margin-left: -8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   color: #444;
 }
 
@@ -677,4 +677,48 @@ select {
 .checklist-add-input::placeholder {
   font-style: italic;
   opacity: 0.6;
+}
+
+/* ===== Loading Spinner ===== */
+.loader-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(4px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.loader-overlay.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 5px solid var(--soft);
+  border-top-color: var(--panel);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 15px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loader-text {
+  font-weight: 800;
+  color: var(--panel-2);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  font-size: 14px;
 }

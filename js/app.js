@@ -106,20 +106,58 @@ function normalizeRow(row) {
   const participantsMap = new Map();
 
   apontamentos.forEach(a => {
-    const h = toNumber(a.Horas || a.horas || 0);
+    // Tentar múltiplas variações do campo de horas (baseado em graphs.js)
+    const h = toNumber(
+      a.Horas ||
+      a.horas ||
+      a.HORAS ||
+      a.Hora ||
+      a.hora ||
+      0
+    );
     hoursTotal += h;
 
-    const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora).toLowerCase();
+    // Tentar múltiplas variações do campo tipo
+    const tipo = safeStr(
+      a["Tipo da hora"] ||
+      a.tipo_hora ||
+      a.TipoDaHora ||
+      a.TipoHora ||
+      a.tipo ||
+      ""
+    ).toLowerCase();
     if (tipo.includes("adm")) hoursAdm += h;
 
-    const name = safeStr(a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador || a.NomeColaborador || a.Colaborador || a.colaborador);
+    // Tentar múltiplas variações do campo nome do colaborador
+    const name = safeStr(
+      a["Nome colaborador"] ||
+      a["Nome Colaborador"] ||
+      a.nome_colaborador ||
+      a.NomeColaborador ||
+      a.Colaborador ||
+      a.colaborador ||
+      a.nome ||
+      a.Nome ||
+      ""
+    );
+
     if (name) {
       if (!participantsMap.has(name)) {
         participantsMap.set(name, { name, hours: 0, roles: new Set() });
       }
       const p = participantsMap.get(name);
       p.hours += h;
-      const role = safeStr(a.Responsabilidades || a.responsabilidade || a.responsabilidades);
+
+      // Tentar múltiplas variações do campo responsabilidades
+      const role = safeStr(
+        a.Responsabilidades ||
+        a.responsabilidade ||
+        a.responsabilidades ||
+        a.Responsabilidade ||
+        a.papel ||
+        a.Papel ||
+        ""
+      );
       if (role) p.roles.add(role);
     }
   });
@@ -447,46 +485,101 @@ async function openModal(task) {
     const thead = document.createElement("thead");
     thead.innerHTML = `
       <tr style="background: #f5f5f5; border-bottom: 2px solid #ddd;">
-        <th style="padding: 8px; text-align: left;">Data</th>
-        <th style="padding: 8px; text-align: left;">Nome Colaborador</th>
-        <th style="padding: 8px; text-align: left;">Responsabilidade</th>
-        <th style="padding: 8px; text-align: left;">Tipo</th>
-        <th style="padding: 8px; text-align: right;">Horas</th>
+        <th style="padding: 12px 8px; text-align: left;">Nome Colaborador</th>
+        <th style="padding: 12px 8px; text-align: left;">Responsabilidade</th>
+        <th style="padding: 12px 8px; text-align: left;">Tipo</th>
+        <th style="padding: 12px 8px; text-align: right;">Horas</th>
       </tr>
     `;
     table.appendChild(thead);
 
     const tbody = document.createElement("tbody");
     let totalH = 0;
-    apontamentos.forEach((a, idx) => {
-      const tr = document.createElement("tr");
-      tr.style.borderBottom = "1px solid #eee";
-      if (idx % 2 === 0) tr.style.background = "#fafafa";
 
-      const h = toNumber(a.Horas || a.horas || 0);
+    // Agrupar por colaborador (Sync com o pedido do usuário)
+    const grouped = new Map();
+    apontamentos.forEach(a => {
+      const name = safeStr(
+        a["Nome colaborador"] ||
+        a["Nome Colaborador"] ||
+        a.nome_colaborador ||
+        a.NomeColaborador ||
+        a.Colaborador ||
+        a.colaborador ||
+        a.nome ||
+        a.Nome ||
+        "Colaborador não Identificado"
+      );
+
+      if (!grouped.has(name)) {
+        grouped.set(name, {
+          name: name,
+          hours: 0,
+          responsibilities: new Set(),
+          types: new Set()
+        });
+      }
+
+      const g = grouped.get(name);
+      const h = toNumber(
+        a.Horas ||
+        a.horas ||
+        a.HORAS ||
+        a.Hora ||
+        a.hora ||
+        0
+      );
+      g.hours += h;
       totalH += h;
 
-      // Priorizar 'Nome colaborador' (c minúsculo) conforme indicação do usuário
-      const nomeColab = a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador || a.NomeColaborador || a.Colaborador || a.colaborador || "—";
-      const resp = a.Responsabilidades || a.responsabilidade || "—";
-      const tipo = a["Tipo da hora"] || a.tipo_hora || "—";
+      const resp = safeStr(
+        a.Responsabilidades ||
+        a.responsabilidade ||
+        a.responsabilidades ||
+        a.Responsabilidade ||
+        a.papel ||
+        a.Papel ||
+        ""
+      );
+      if (resp) g.responsibilities.add(resp);
 
-      tr.innerHTML = `
-        <td style="padding: 8px;">${escapeHTML(a.Data || a.data || "—")}</td>
-        <td style="padding: 8px;">${escapeHTML(nomeColab)}</td>
-        <td style="padding: 8px;">${escapeHTML(resp)}</td>
-        <td style="padding: 8px;">${escapeHTML(tipo)}</td>
-        <td style="padding: 8px; text-align: right; font-weight: bold;">${h.toFixed(1)}h</td>
-      `;
-      tbody.appendChild(tr);
+      const tipo = safeStr(
+        a["Tipo da hora"] ||
+        a.tipo_hora ||
+        a.TipoDaHora ||
+        a.TipoHora ||
+        a.tipo ||
+        ""
+      );
+      if (tipo) g.types.add(tipo);
     });
+
+    // Renderizar linhas agrupadas
+    [...grouped.values()]
+      .sort((a, b) => b.hours - a.hours) // Mostrar quem tem mais horas primeiro
+      .forEach((g, idx) => {
+        const tr = document.createElement("tr");
+        tr.style.borderBottom = "1px solid #eee";
+        if (idx % 2 === 0) tr.style.background = "#fafafa";
+
+        const responsabilidadesStr = [...g.responsibilities].join(", ") || "—";
+        const tiposStr = [...g.types].join(", ") || "—";
+
+        tr.innerHTML = `
+          <td style="padding: 12px 8px;">${escapeHTML(g.name)}</td>
+          <td style="padding: 12px 8px;">${escapeHTML(responsabilidadesStr)}</td>
+          <td style="padding: 12px 8px;">${escapeHTML(tiposStr)}</td>
+          <td style="padding: 12px 8px; text-align: right; font-weight: bold;">${g.hours.toFixed(1)}h</td>
+        `;
+        tbody.appendChild(tr);
+      });
     table.appendChild(tbody);
 
     const tfoot = document.createElement("tfoot");
     tfoot.innerHTML = `
       <tr style="background: #e8f4f8; border-top: 2px solid #ddd; font-weight: bold;">
-        <td colspan="4" style="padding: 8px;">TOTAL</td>
-        <td style="padding: 8px; text-align: right;">${totalH.toFixed(1)}h</td>
+        <td colspan="3" style="padding: 12px 8px;">TOTAL</td>
+        <td style="padding: 12px 8px; text-align: right;">${totalH.toFixed(1)}h</td>
       </tr>
     `;
     table.appendChild(tfoot);
@@ -835,7 +928,6 @@ async function init() {
   } catch (e) {
     console.error("Erro fatal ao carregar dados da API:", e);
 
-
     // Fallback para LocalStorage se a API falhar
     const cachedTasks = loadFromLocalStorage();
     if (cachedTasks) {
@@ -847,6 +939,10 @@ async function init() {
       render();
       setBanner("Aviso: Mostrando dados de amostra.", "info");
     }
+  } finally {
+    // Esconder o loader
+    const loader = $("#loader");
+    if (loader) loader.classList.add("hidden");
   }
 }
 
@@ -857,7 +953,18 @@ function mergeData(tasksList, apontamentosList) {
   // Criar mapa de apontamentos agrupados por ID da demanda
   const map = new Map();
   apontamentosList.forEach(a => {
-    const key = String(a.DemandaId || a.demanda_id || a.id || "").trim();
+    // CRÍTICO: A API às vezes retorna "DemandaId " COM ESPAÇO NO FINAL! (Sync com graphs.js)
+    const key = String(
+      a["DemandaId "] ||
+      a.DemandaId ||
+      a.demanda_id ||
+      a.demandaId ||
+      a.demanda_Id ||
+      a.id ||
+      a.ID ||
+      ""
+    ).trim();
+
     if (key) {
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(a);

@@ -103,12 +103,20 @@ if (typeof ChartDataLabels !== 'undefined') {
 }
 
 async function init() {
-    await loadData();
-    populateFilters();
-    // Inicializar com métrica padrão 'all' (Todas as Visões)
-    document.getElementById('metricSelect').value = 'all';
-    initCharts(APP_DATA, 'all');
-    setupEventListeners();
+    try {
+        await loadData();
+        populateFilters();
+        // Inicializar com métrica padrão 'all' (Todas as Visões)
+        document.getElementById('metricSelect').value = 'all';
+        initCharts(APP_DATA, 'all');
+        setupEventListeners();
+    } catch (e) {
+        console.error("Erro na inicialização dos gráficos:", e);
+    } finally {
+        // Esconder o loader
+        const loader = document.getElementById('loader');
+        if (loader) loader.classList.add('hidden');
+    }
 }
 
 function safeStr(x) { return (x === null || x === undefined) ? "" : String(x).trim(); }
@@ -470,32 +478,29 @@ function processTasks(tasks) {
 
 
 function parseDate(dateStr) {
-    if (!dateStr) return null; // Retorna null se vazio
+    if (!dateStr) return null;
 
-    // IMPORTANTE: A API retorna datas no formato MM/DD/YYYY (americano)
-    // Precisamos interpretar corretamente para exibir no formato brasileiro DD/MM/YYYY
-
+    // A API retorna datas no formato DD/MM/YYYY
     const parts = dateStr.split('/');
     if (parts.length === 3) {
-        // A API retorna: MM/DD/YYYY (formato americano)
-        const month = parts[0];  // Mês
-        const day = parts[1];    // Dia
-        const year = parts[2];   // Ano
+        const day = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10);
+        const year = parseInt(parts[2], 10);
 
-        // Criar data no formato correto: YYYY-MM-DD
-        const d = new Date(`${year}-${month}-${day}`);
+        // Criar data usando o construtor local para evitar deslocamentos de fuso horário (UTC)
+        // Mês é 0-indexado em JS
+        const d = new Date(year, month - 1, day);
 
         if (!isNaN(d.getTime())) {
-            console.log(`📅 [parseDate] API: ${dateStr} (MM/DD/YYYY) → Interpretado: ${day}/${month}/${year} (DD/MM/YYYY)`);
             return d;
         }
     }
 
-    // Fallback: tenta parse padrão de Date (para formatos ISO)
+    // Fallback: tenta parse padrão para formatos ISO ou outros
     let d = new Date(dateStr);
     if (!isNaN(d.getTime())) return d;
 
-    return null; // Retorna null se inválido
+    return null;
 }
 
 /**
@@ -1720,7 +1725,11 @@ function processDailyScheduleData(data, metric, filterOwner) {
                 const dateObj = parseDate(a.Data || a.data);
                 if (!dateObj) return;
 
-                const dateKey = dateObj.toISOString().split('T')[0];
+                // Gerar uma chave de data estável (YYYY-MM-DD) sem depender de toISOString (que usa UTC)
+                const yKey = dateObj.getFullYear();
+                const mKey = String(dateObj.getMonth() + 1).padStart(2, '0');
+                const dKey = String(dateObj.getDate()).padStart(2, '0');
+                const dateKey = `${yKey}-${mKey}-${dKey}`;
                 const taskId = item.id;
                 const taskLabel = `${item.id || '?'} - ${item.client || item.title}`;
 
@@ -1768,7 +1777,10 @@ function processDailyScheduleData(data, metric, filterOwner) {
                 while (curr <= end) {
                     const w = curr.getDay();
                     if (w !== 0 && w !== 6) {
-                        const dateKey = curr.toISOString().split('T')[0];
+                        const yKey = curr.getFullYear();
+                        const mKey = String(curr.getMonth() + 1).padStart(2, '0');
+                        const dKey = String(curr.getDate()).padStart(2, '0');
+                        const dateKey = `${yKey}-${mKey}-${dKey}`;
                         const taskId = item.id;
                         const taskLabel = `${item.id || '?'} - ${item.client || item.title}`;
 
@@ -1809,7 +1821,8 @@ function processDailyScheduleData(data, metric, filterOwner) {
 
     // Formatar labels de data usando formatDatePT
     const formattedLabels = sortedDates.map(dateStr => {
-        const d = new Date(dateStr + 'T12:00:00'); // Safe timezone
+        const parts = dateStr.split('-');
+        const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
         return formatDatePT(d, 'weekday'); // Formato: 05/02 seg
     });
 
@@ -1902,10 +1915,10 @@ function processDailyListHelper(data, metric, filterOwner) {
                 const dateObj = parseDate(a.Data || a.data);
                 if (!dateObj) return;
 
-                const y = dateObj.getFullYear();
-                const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-                const d = String(dateObj.getDate()).padStart(2, '0');
-                const dateKey = y + '-' + m + '-' + d;
+                const yKey = dateObj.getFullYear();
+                const mKey = String(dateObj.getMonth() + 1).padStart(2, '0');
+                const dKey = String(dateObj.getDate()).padStart(2, '0');
+                const dateKey = `${yKey}-${mKey}-${dKey}`;
 
                 if (!dates[dateKey]) dates[dateKey] = [];
                 dates[dateKey].push({
