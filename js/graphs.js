@@ -111,146 +111,434 @@ async function init() {
     setupEventListeners();
 }
 
-async function loadData() {
-    // 1. Tenta LocalStorage PRIMEIRO (Para garantir sincronia com o que o usuário vê no Board)
-    try {
-        const rawLocal = localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (rawLocal) {
-            const parsed = JSON.parse(rawLocal);
-            const localTasks = parsed.tasks || [];
-            if (Array.isArray(localTasks) && localTasks.length > 0) {
-                console.log("Dados carregados do LocalStorage (Sincronizado com Board)");
-                APP_DATA = processTasks(localTasks);
-
-                /*
-                                // Log de uso do CSV2
-                                const csv2Count = APP_DATA.filter(t => t.hasCSV2Data).length;
-                                if (csv2Count > 0) {
-                                    console.log(`[Graphs] ${csv2Count}/${APP_DATA.length} tarefas usando dados do CSV2`);
-                                }
-                */
-
-                return; // Usa dados locais e pula API
-            }
-        }
-    } catch (err) {
-        console.warn("Erro ao carregar do LocalStorage", err);
-    }
-
-    // 2. Fallback para API se LocalStorage estiver vazio/ausente
-    console.log("LocalStorage vazio, tentando API...");
-    try {
-        const tasks = await api.getTasks();
-        if (tasks && Array.isArray(tasks)) {
-            APP_DATA = processTasks(tasks);
-            return;
-        }
-    } catch (e) {
-        console.error("Erro ao carregar dados da API", e);
-    }
-
-    // 3. Último recurso: vazio
-    APP_DATA = [];
+function safeStr(x) { return (x === null || x === undefined) ? "" : String(x).trim(); }
+function toNumber(x) {
+    const s = safeStr(x).replace(/\./g, "").replace(",", ".").replace(/[^\d.-]/g, "");
+    const n = Number(s);
+    return Number.isFinite(n) ? n : 0;
 }
 
-/**
- * Lógica de processamento compartilhada para dados da API e Local
- */
-/**
- * Lógica de processamento compartilhada para dados da API e Local
- */
-function processTasks(tasks) {
-    const processed = tasks.map(t => {
-        // Determinar objeto raw (API pode retornar raw diretamente ou envelopado)
-        const raw = t.raw || t;
+async function loadData() {
+    console.log("🔄 [Graphs] Iniciando carregamento de dados via API...");
+    try {
+        // 1. Busca os dados da API (Tarefas e Apontamentos)
+        const [tasksData, apontamentosData] = await Promise.all([
+            api.getTasks(),
+            api.getApontamentos()
+        ]);
 
-        // Verificar se temos dados do CSV2
-        const csv2Details = raw["_csv2Details"];
+        console.log(`📊 [Graphs] API retornou ${tasksData?.length || 0} tarefas e ${apontamentosData?.length || 0} apontamentos`);
+        console.log("📋 [Graphs] Amostra de tarefa:", tasksData?.[0]);
+        console.log("📋 [Graphs] Amostra de apontamento:", apontamentosData?.[0]);
 
-        // Extrair atribuições
-        const assignments = [];
+        // 2. Mescla os dados
+        const merged = mergeData(tasksData, apontamentosData);
+        console.log(`🔗 [Graphs] Merge concluído. ${merged.length} tarefas com apontamentos anexados`);
+        console.log("📋 [Graphs] Amostra de tarefa mesclada:", merged?.[0]);
+        console.log("📋 [Graphs] Apontamentos na primeira tarefa:", merged?.[0]?._apontamentos?.length || 0);
 
-        if (csv2Details && csv2Details.colaboradores && csv2Details.colaboradores.length > 0) {
-            // USAR DADOS DO CSV2 (prioritário)
-            csv2Details.colaboradores.forEach(colab => {
-                assignments.push({
-                    role: colab.responsabilidades,
-                    person: colab.colaborador,
-                    hoursProject: colab.horasProjeto || 0,
-                    hoursAdm: colab.horasAdm || 0,
-                    hoursTotal: colab.horasTotal || 0
-                });
-            });
+        // 3. Processa para o formato dos gráficos
+        APP_DATA = processTasks(merged);
+
+        console.log(`✅ [Graphs] ${APP_DATA.length} tarefas processadas com sucesso`);
+        console.log("📋 [Graphs] Amostra de tarefa processada:", APP_DATA?.[0]);
+
+        // Validação de dados
+        const tasksWithHours = APP_DATA.filter(t => t.hours > 0);
+        const tasksWithAssignments = APP_DATA.filter(t => t.assignments && t.assignments.length > 0);
+        console.log(`📈 [Graphs] Estatísticas: ${tasksWithHours.length} tarefas com horas, ${tasksWithAssignments.length} tarefas com atribuições`);
+
+    } catch (e) {
+        console.error("❌ [Graphs] Erro ao carregar dados da API:", e);
+        console.error("Stack trace:", e.stack);
+        APP_DATA = [];
+    }
+}
+
+function mergeData(tasksList, apontamentosList) {
+    if (!Array.isArray(tasksList)) {
+        console.warn("⚠️ [Graphs] tasksList não é um array:", tasksList);
+        return [];
+    }
+    if (!Array.isArray(apontamentosList)) {
+        console.warn("⚠️ [Graphs] apontamentosList não é um array, retornando tarefas sem apontamentos");
+        return tasksList.map(t => ({ ...t, _apontamentos: [] }));
+    }
+
+    console.log(`🔗 [Graphs] Iniciando merge de ${tasksList.length} tarefas com ${apontamentosList.length} apontamentos`);
+
+    // Debug: Verificar se há campos com espaços
+    if (apontamentosList.length > 0) {
+        const firstApontamento = apontamentosList[0];
+        const fieldsWithSpaces = Object.keys(firstApontamento).filter(k => k !== k.trim());
+        if (fieldsWithSpaces.length > 0) {
+            console.warn(`⚠️ [Graphs] ATENÇÃO: API retorna campos com espaços extras:`, fieldsWithSpaces);
+            console.warn(`⚠️ [Graphs] Exemplo: "${fieldsWithSpaces[0]}" vs "${fieldsWithSpaces[0].trim()}"`);
         }
-        // REMOVIDO: Fallback para CSV1 (legado)
+    }
 
-        // Usar datas do CSV2 SOMENTE
-        const csv2DateStart = csv2Details?.dataInicio ? parseDate(csv2Details.dataInicio) : null;
-        const csv2DateEnd = csv2Details?.dataFim ? parseDate(csv2Details.dataFim) : null;
+    // Criar mapa de apontamentos agrupados por ID da demanda
+    const map = new Map();
+    let apontamentosComId = 0;
+    let apontamentosSemId = 0;
 
-        // Usar horas do CSV2 SOMENTE
-        let hoursProject = 0;
-        let hoursAdm = 0;
+    apontamentosList.forEach(a => {
+        // Tentar múltiplas variações de campo de ID
+        // CRÍTICO: A API retorna "DemandaId " COM ESPAÇO NO FINAL!
+        const key = String(
+            a["DemandaId "] ||  // ← COM ESPAÇO (bug da API)
+            a.DemandaId ||
+            a.demanda_id ||
+            a.demandaId ||
+            a.demanda_Id ||
+            a.id ||
+            a.ID ||
+            ""
+        ).trim();
 
-        if (csv2Details) {
-            hoursProject = csv2Details.horasProjetoTotal || 0;
-            hoursAdm = csv2Details.horasAdmTotal || 0;
+        if (key) {
+            apontamentosComId++;
+            if (!map.has(key)) map.set(key, []);
+            map.get(key).push(a);
+        } else {
+            apontamentosSemId++;
+            console.warn('⚠️ [Graphs] Apontamento sem ID válido:', a);
+        }
+    });
+
+    console.log(`📊 [Graphs] Apontamentos: ${apontamentosComId} com ID, ${apontamentosSemId} sem ID`);
+    console.log(`📊 [Graphs] IDs únicos de demandas nos apontamentos:`, [...map.keys()]);
+
+    // Anexar apontamentos às tarefas
+    let tasksComApontamentos = 0;
+    let tasksSemApontamentos = 0;
+
+    const result = tasksList.map(task => {
+        // Tentar múltiplas variações de campo de ID da tarefa
+        const taskId = String(
+            task.id ||
+            task.ID ||
+            task["ID"] ||
+            task.Id ||
+            ""
+        ).trim();
+
+        const apontamentos = map.has(taskId) ? map.get(taskId) : [];
+
+        if (apontamentos.length > 0) {
+            tasksComApontamentos++;
+        } else {
+            tasksSemApontamentos++;
         }
 
-        // Estrutura do mapa
         return {
-            id: t.id || raw["ID"] || raw["id"],
-            client: raw["Nome Cliente"] || t.title || "Sem Cliente",
-            title: t.title || raw["Detalhe da demanda (Escopo)"] || "Demanda", // Garantir que título exista
-            owner: t.responsible || raw["Responsável Demanda"] || "Sem Responsável", // Ainda mantendo owner genérico ou deve vir do CSV2? Mantendo por enquanto para compatibilidade de display simples, mas assignments dita o gráfico
-            assignments: assignments,
-            type: t.demandType || raw["Tipo de Demanda"] || "OUTROS",
-            status: t.status || raw["Status"] || "Backlog",
-            hoursProject: hoursProject,
-            hoursAdm: hoursAdm,
-            get hours() { return (this.hoursProject || 0) + (this.hoursAdm || 0); }, // Total calculado dinamicamente
-            date: csv2DateEnd, // SOMENTE CSV2
-            dateStart: csv2DateStart, // SOMENTE CSV2
-            dateEnd: csv2DateEnd, // SOMENTE CSV2
-            raw: raw,
-            hasCSV2Data: !!csv2Details // Flag para debug
+            ...task,
+            _apontamentos: apontamentos
         };
     });
 
-    /*
-        // Logging de Verificação de Volumetria
-        console.log(`[Graphs] Processamento concluído: ${processed.length} tarefas.`);
-        if (processed.length > 0) {
-            let totalH = 0, totalP = 0, totalA = 0;
-            processed.forEach(p => {
-                totalH += p.hours;
-                totalP += p.hoursProject;
-                totalA += p.hoursAdm;
-            });
-            console.log(`[Graphs] Volumetria Total (CSV2 Only): ${totalH.toFixed(1)}h (Projeto: ${totalP.toFixed(1)}h, ADM: ${totalA.toFixed(1)}h)`);
+    console.log(`✅ [Graphs] Merge concluído: ${tasksComApontamentos} tarefas COM apontamentos, ${tasksSemApontamentos} tarefas SEM apontamentos`);
+
+    return result;
+}
+
+/**
+ * Lógica de processamento atualizada para usar Apontamentos Reais
+ * GARANTIA: Todos os dados são processados 100% a partir dos apontamentos da API
+ */
+function processTasks(tasks) {
+    console.log(`🔄 [Graphs] Processando ${tasks.length} tarefas...`);
+
+    let tasksWithApontamentos = 0;
+    let tasksWithoutApontamentos = 0;
+    let totalApontamentos = 0;
+
+    const processed = tasks.map((t, index) => {
+        const raw = t.raw || t;
+        const apontamentos = t._apontamentos || [];
+
+        if (apontamentos.length > 0) {
+            tasksWithApontamentos++;
+            totalApontamentos += apontamentos.length;
+        } else {
+            tasksWithoutApontamentos++;
         }
-    */
+
+        // Calcular somas de horas dos apontamentos
+        let hTotal = 0;
+        let hAdm = 0;
+        const participantsMap = new Map();
+
+        apontamentos.forEach((a, aIndex) => {
+            // Tentar múltiplas variações do campo de horas
+            const h = toNumber(
+                a.Horas ||
+                a.horas ||
+                a.HORAS ||
+                a.Hora ||
+                a.hora ||
+                0
+            );
+
+            // Log detalhado de cada apontamento
+            if (index === 0 && aIndex === 0) {
+                console.log(`📋 [Graphs] Exemplo de apontamento completo:`, a);
+                console.log(`📋 [Graphs] Campos disponíveis:`, Object.keys(a));
+            }
+
+            if (h === 0) {
+                console.warn(`⚠️ [Graphs] Apontamento sem horas na tarefa ${t.id}:`, a);
+            }
+
+            hTotal += h;
+
+            // Tentar múltiplas variações do campo tipo
+            const tipo = safeStr(
+                a["Tipo da hora"] ||
+                a.tipo_hora ||
+                a.TipoDaHora ||
+                a.TipoHora ||
+                a.tipo ||
+                ""
+            ).toLowerCase();
+
+            if (tipo.includes("adm")) hAdm += h;
+
+            // Tentar múltiplas variações do campo nome do colaborador
+            const name = safeStr(
+                a["Nome colaborador"] ||
+                a["Nome Colaborador"] ||
+                a.nome_colaborador ||
+                a.NomeColaborador ||
+                a.Colaborador ||
+                a.colaborador ||
+                a.nome ||
+                a.Nome ||
+                ""
+            );
+
+            if (name) {
+                if (!participantsMap.has(name)) {
+                    participantsMap.set(name, {
+                        name,
+                        hours: 0,
+                        hoursProject: 0,
+                        hoursAdm: 0,
+                        roles: new Set()
+                    });
+                }
+                const p = participantsMap.get(name);
+                p.hours += h;
+                if (tipo.includes("adm")) p.hoursAdm += h;
+                else p.hoursProject += h;
+
+                // Tentar múltiplas variações do campo responsabilidades
+                const role = safeStr(
+                    a.Responsabilidades ||
+                    a.responsabilidade ||
+                    a.responsabilidades ||
+                    a.Responsabilidade ||
+                    a.papel ||
+                    a.Papel ||
+                    ""
+                );
+                if (role) p.roles.add(role);
+            } else {
+                console.warn(`⚠️ [Graphs] Apontamento sem nome de colaborador na tarefa ${t.id}:`, a);
+            }
+        });
+
+        // Formatar assinaturas para o padrão do gráfico
+        const assignments = [...participantsMap.values()].map(p => ({
+            person: p.name,
+            role: [...p.roles].join("/") || "Colaborador",
+            hoursTotal: p.hours,
+            hoursProject: p.hoursProject,
+            hoursAdm: p.hoursAdm
+        }));
+
+        const hProject = Math.max(0, hTotal - hAdm);
+
+        // Datas - tentar múltiplas variações
+        const dateStartStr =
+            raw["Data Início (Previsão)"] ||
+            raw["data_inicio"] ||
+            raw.data_inicio ||
+            raw.DataInicio ||
+            "";
+
+        const dateEndStr =
+            raw["Data Conclusão (Previsão)"] ||
+            raw["data_conclusao"] ||
+            raw.data_conclusao ||
+            raw.DataConclusao ||
+            "";
+
+        // ID da tarefa - tentar múltiplas variações
+        const taskId =
+            t.id ||
+            raw["ID"] ||
+            raw["id"] ||
+            raw.Id ||
+            raw.ID ||
+            "";
+
+        // Cliente - tentar múltiplas variações
+        const client =
+            raw["Nome Cliente"] ||
+            raw.nome_cliente ||
+            raw.NomeCliente ||
+            raw.cliente ||
+            raw.Cliente ||
+            t.title ||
+            "Sem Cliente";
+
+        // Título/Escopo - tentar múltiplas variações
+        const title =
+            t.title ||
+            raw["Detalhe da demanda (Escopo)"] ||
+            raw.detalhe ||
+            raw.Detalhe ||
+            raw.escopo ||
+            raw.Escopo ||
+            "Demanda";
+
+        // Responsável - tentar múltiplas variações
+        const owner =
+            t.responsible ||
+            raw["Responsável Demanda"] ||
+            raw.responsavel ||
+            raw.Responsavel ||
+            "Sem Responsável";
+
+        // Tipo - tentar múltiplas variações
+        const type =
+            t.demandType ||
+            raw["Tipo de Demanda"] ||
+            raw.tipo ||
+            raw.Tipo ||
+            "OUTROS";
+
+        // Status - tentar múltiplas variações
+        const status =
+            t.status ||
+            raw["Status"] ||
+            raw.status ||
+            raw.STATUS ||
+            "Backlog";
+
+        const result = {
+            id: taskId,
+            client: client,
+            title: title,
+            owner: owner,
+            assignments: assignments,
+            type: type,
+            status: status,
+            hoursProject: hProject,
+            hoursAdm: hAdm,
+            get hours() { return (this.hoursProject || 0) + (this.hoursAdm || 0); },
+            dateStart: parseDate(dateStartStr),
+            dateEnd: parseDate(dateEndStr),
+            get date() { return this.dateEnd || new Date(); },
+            raw: raw,
+            _apontamentos: apontamentos // Preservar para uso posterior
+        };
+
+        return result;
+    });
+
+    console.log(`✅ [Graphs] Processamento concluído:`);
+    console.log(`   - ${tasksWithApontamentos} tarefas COM apontamentos`);
+    console.log(`   - ${tasksWithoutApontamentos} tarefas SEM apontamentos`);
+    console.log(`   - ${totalApontamentos} apontamentos processados no total`);
+
+    // Estatísticas adicionais
+    const totalHours = processed.reduce((sum, t) => sum + t.hours, 0);
+    const totalAdmHours = processed.reduce((sum, t) => sum + t.hoursAdm, 0);
+    const totalProjectHours = processed.reduce((sum, t) => sum + t.hoursProject, 0);
+    const totalAssignments = processed.reduce((sum, t) => sum + (t.assignments?.length || 0), 0);
+    const uniquePeople = new Set();
+    processed.forEach(t => t.assignments.forEach(a => uniquePeople.add(a.person)));
+
+    console.log(`📊 [Graphs] Horas totais: ${totalHours.toFixed(2)}h (${totalProjectHours.toFixed(2)}h projeto + ${totalAdmHours.toFixed(2)}h ADM)`);
+    console.log(`📊 [Graphs] Atribuições: ${totalAssignments} atribuições para ${uniquePeople.size} pessoas únicas`);
+    console.log(`📊 [Graphs] Pessoas encontradas:`, [...uniquePeople].sort());
 
     return processed;
 }
 
+
 function parseDate(dateStr) {
     if (!dateStr) return null; // Retorna null se vazio
 
-    // Tenta parse padrão de Date (funciona para ISO e M/D/Y)
+    // IMPORTANTE: A API retorna datas no formato MM/DD/YYYY (americano)
+    // Precisamos interpretar corretamente para exibir no formato brasileiro DD/MM/YYYY
+
+    const parts = dateStr.split('/');
+    if (parts.length === 3) {
+        // A API retorna: MM/DD/YYYY (formato americano)
+        const month = parts[0];  // Mês
+        const day = parts[1];    // Dia
+        const year = parts[2];   // Ano
+
+        // Criar data no formato correto: YYYY-MM-DD
+        const d = new Date(`${year}-${month}-${day}`);
+
+        if (!isNaN(d.getTime())) {
+            console.log(`📅 [parseDate] API: ${dateStr} (MM/DD/YYYY) → Interpretado: ${day}/${month}/${year} (DD/MM/YYYY)`);
+            return d;
+        }
+    }
+
+    // Fallback: tenta parse padrão de Date (para formatos ISO)
     let d = new Date(dateStr);
     if (!isNaN(d.getTime())) return d;
 
-    // Tenta formato brasileiro DD/MM/YYYY
-    const parts = dateStr.split('/');
-    if (parts.length === 3) {
-        // Assume D/M/Y
-        d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
-        if (!isNaN(d.getTime())) return d;
-    }
-
     return null; // Retorna null se inválido
 }
+
+/**
+ * Formata data para exibição em português
+ * @param {Date|string} date - Data para formatar
+ * @param {string} format - 'short' (02/03), 'medium' (02/03/2026), 'long' (02 de março de 2026), 'full' (02/03/2026 seg)
+ * @returns {string} Data formatada
+ */
+function formatDatePT(date, format = 'medium') {
+    if (!date) return '';
+
+    // Se for string, fazer parse primeiro
+    const dateObj = typeof date === 'string' ? parseDate(date) : date;
+    if (!dateObj || isNaN(dateObj.getTime())) return '';
+
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const year = dateObj.getFullYear();
+
+    const monthNames = [
+        'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+        'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
+    ];
+
+    const weekDays = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+    const weekDay = weekDays[dateObj.getDay()];
+
+    switch (format) {
+        case 'short':
+            return `${day}/${month}`;
+        case 'medium':
+            return `${day}/${month}/${year}`;
+        case 'long':
+            return `${day} de ${monthNames[dateObj.getMonth()]} de ${year}`;
+        case 'full':
+            return `${day}/${month}/${year} (${weekDay})`;
+        case 'weekday':
+            return `${day}/${month} ${weekDay}`;
+        default:
+            return `${day}/${month}/${year}`;
+    }
+}
+
 
 /**
  * Preenche opções do 'Select' baseado em APP_DATA
@@ -381,10 +669,26 @@ function applyFilters() {
         } else if (period === 'year') {
             if (itemDate.getFullYear() !== TODAY.getFullYear()) return false;
         } else if (period === 'custom') {
-            // Se as datas não estiverem preenchidas, mostra tudo ou nada?
-            // Vamos mostrar tudo se vazio, ou filtrar se preenchido.
-            if (customStart && itemDate < customStart) return false;
-            if (customEnd && itemDate > customEnd) return false;
+            // IMPORTANTE: Filtrar por datas dos APONTAMENTOS, não pela data da tarefa
+            if (customStart || customEnd) {
+                // Verificar se a tarefa tem pelo menos um apontamento dentro do período
+                const hasAppointmentInRange = (item._apontamentos || []).some(a => {
+                    const appointmentDateStr = a.Data || a.data;
+                    if (!appointmentDateStr) return false;
+
+                    const appointmentDate = parseDate(appointmentDateStr);
+                    if (!appointmentDate) return false;
+
+                    // Verificar se a data do apontamento está dentro do range
+                    if (customStart && appointmentDate < customStart) return false;
+                    if (customEnd && appointmentDate > customEnd) return false;
+
+                    return true; // Apontamento está dentro do período
+                });
+
+                // Se não houver apontamentos no período, filtrar a tarefa
+                if (!hasAppointmentInRange) return false;
+            }
         }
 
         // Deadline Logic
@@ -1159,71 +1463,38 @@ function processResponsibleData(data, metric, filterOwner = null) {
     const uniquePersonsPerMonth = {};
 
     data.forEach(d => {
-        // 1. TENTAR DADOS GRANULARES (LANCAMENTOS) - Fonte da Verdade CSV2
-        const granularData = d.raw && d.raw['_csv2Details'] && d.raw['_csv2Details'].lancamentos;
+        const apontamentos = d._apontamentos || [];
 
-        if (granularData && Array.isArray(granularData) && granularData.length > 0) {
-            granularData.forEach(entry => {
+        if (apontamentos.length > 0) {
+            apontamentos.forEach(a => {
+                const person = safeStr(a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador || a.NomeColaborador || a.Colaborador || a.colaborador);
+                if (!person) return;
+
                 // Filtro de Responsável
-                if (filterOwner && entry.person !== filterOwner) return;
+                if (filterOwner && person !== filterOwner) return;
 
                 // Filtro de Métrica
-                let val = entry.hours;
-                if (metric === 'hoursAdm' && entry.type !== 'adm') val = 0;
-                else if (metric === 'hoursProject' && entry.type !== 'project') val = 0;
+                let val = toNumber(a.Horas || a.horas || 0);
+                const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora).toLowerCase();
+
+                if (metric === 'hoursAdm' && !tipo.includes('adm')) val = 0;
+                else if (metric === 'hoursProject' && tipo.includes('adm')) val = 0;
 
                 if (val <= 0) return;
 
-                const person = entry.person;
-                const dateObj = parseDate(entry.date);
+                const dateStr = a.Data || a.data;
+                const dateObj = parseDate(dateStr);
                 if (!dateObj) return;
 
-                // Chave de Mês (YYYY-MM)
                 const y = dateObj.getFullYear();
                 const m = dateObj.getMonth() + 1;
                 const monthKey = `${y}-${String(m).padStart(2, '0')}`;
 
-                // Label estavel (Jan/24)
                 const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
                 let label = `${monthNames[m - 1]}/${String(y).slice(2)}`;
-                // label = label.charAt(0).toUpperCase() + label.slice(1); // Já está Capitalizado
 
                 monthMap.set(monthKey, label);
                 personSet.add(person);
-
-                // Acumular Valores
-                const key = `${monthKey}|${person}`;
-                values[key] = (values[key] || 0) + val;
-                monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + val;
-
-                if (!uniquePersonsPerMonth[monthKey]) uniquePersonsPerMonth[monthKey] = new Set();
-                uniquePersonsPerMonth[monthKey].add(person);
-            });
-        }
-        else {
-            // 2. FALLBACK (Lógica Legada baseada em Data Fim/Assignments)
-            const dateRef = d.dateEnd || d.date || new Date();
-            const y = dateRef.getFullYear();
-            const m = dateRef.getMonth() + 1;
-            const monthKey = `${y}-${String(m).padStart(2, '0')}`;
-
-            const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-            let label = `${monthNames[m - 1]}/${String(y).slice(2)}`;
-
-            monthMap.set(monthKey, label);
-
-            d.assignments.forEach(assign => {
-                if (!assign.person) return;
-                if (filterOwner && assign.person !== filterOwner) return;
-
-                const person = assign.person;
-                personSet.add(person);
-
-                let val = 0;
-                if (metric === 'hours') val = assign.hoursTotal;
-                else if (metric === 'hoursAdm') val = assign.hoursAdm;
-                else if (metric === 'hoursProject') val = assign.hoursProject;
-                else val = assign.hoursTotal;
 
                 const key = `${monthKey}|${person}`;
                 values[key] = (values[key] || 0) + val;
@@ -1240,8 +1511,6 @@ function processResponsibleData(data, metric, filterOwner = null) {
 
     const monthlyCapacity = {};
     sortedMonthKeys.forEach(k => {
-        // Capacidade é fixa 176h independente do número de pessoas na visão mensal individual
-        // Mas para a linha de capacidade, queremos 176h plano.
         monthlyCapacity[k] = 176;
     });
 
@@ -1255,14 +1524,14 @@ function processResponsibleData(data, metric, filterOwner = null) {
     };
 }
 
+
 function buildResponsibleDatasets(data) {
     const datasets = data.persons.map(p => {
         const color = stringToColor(p);
         return {
             label: p,
-            data: data.monthKeys.map(m => data.values[`${m}| ${p} `] || 0),
-            backgroundColor: color,
-            // stack: 'Stack 0', // Removido para permitir agrupamento lado a lado
+            data: data.monthKeys.map(m => data.values[`${m}|${p}`] || 0),
+            backgroundColor: color
         };
     });
 
@@ -1428,75 +1697,98 @@ function updateDailyChart(data, metric, filterOwner) {
 }
 
 function processDailyScheduleData(data, metric, filterOwner) {
-    // 1. Identificar Intervalo e Tarefas
-    const dailyMap = new Map(); // DataString -> { taskId: hours }
-    const taskInfo = new Map(); // taskId -> { label, color }
+    const dailyMap = new Map();
+    const taskInfo = new Map();
     const allTaskIds = new Set();
 
     data.forEach(item => {
-        // Datas CSV2
-        const start = item.dateStart;
-        const end = item.dateEnd;
-        if (!start || !end) return;
+        const apontamentos = item._apontamentos || [];
 
-        // Calcular dias úteis
-        let businessDays = 0;
-        let d = new Date(start);
-        while (d <= end) {
-            const w = d.getDay();
-            if (w !== 0 && w !== 6) businessDays++;
-            d.setDate(d.getDate() + 1);
-        }
+        if (apontamentos.length > 0) {
+            apontamentos.forEach(a => {
+                const person = safeStr(a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador || a.NomeColaborador || a.Colaborador || a.colaborador);
+                if (filterOwner && person !== filterOwner) return;
 
-        if (businessDays === 0) return;
+                let val = toNumber(a.Horas || a.horas || 0);
+                const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora).toLowerCase();
 
-        // Definir loop de atribuições
-        let assignments = item.assignments;
+                if (metric === 'hoursAdm' && !tipo.includes('adm')) val = 0;
+                else if (metric === 'hoursProject' && tipo.includes('adm')) val = 0;
 
-        // Se filtro de owner estiver ativo, filtrar assignments
-        // Se não tiver assignments, fallback owner
-        if (assignments.length === 0 && item.owner) {
-            assignments = [{ person: item.owner, hoursTotal: getMetricValue(item, 'hours') }];
-        }
+                if (val <= 0) return;
 
-        assignments.forEach(assign => {
-            if (filterOwner && assign.person !== filterOwner) return;
+                const dateObj = parseDate(a.Data || a.data);
+                if (!dateObj) return;
 
-            let h = 0;
-            // Simplificacao de metrica
-            if (metric === 'hours' || metric === 'all') h = assign.hoursTotal || assign.hours || 0;
-            else if (metric === 'hoursAdm') h = assign.hoursAdm || 0;
-            else if (metric === 'hoursProject') h = assign.hoursProject || 0;
+                const dateKey = dateObj.toISOString().split('T')[0];
+                const taskId = item.id;
+                const taskLabel = `${item.id || '?'} - ${item.client || item.title}`;
 
-            if (h <= 0) return;
+                if (!dailyMap.has(dateKey)) dailyMap.set(dateKey, {});
+                const entry = dailyMap.get(dateKey);
 
-            const dailyHours = h / businessDays;
+                entry[taskId] = (entry[taskId] || 0) + val;
 
-            // Distribuir
-            let curr = new Date(start);
-            while (curr <= end) {
-                const w = curr.getDay();
-                if (w !== 0 && w !== 6) {
-                    const dateKey = curr.toISOString().split('T')[0];
-                    const taskId = item.id;
-                    const taskLabel = `${item.id || '?'} - ${item.client || item.title}`;
-
-                    if (!dailyMap.has(dateKey)) dailyMap.set(dateKey, {});
-                    const entry = dailyMap.get(dateKey);
-
-                    entry[taskId] = (entry[taskId] || 0) + dailyHours;
-
-                    if (!taskInfo.has(taskId)) {
-                        taskInfo.set(taskId, {
-                            label: taskLabel,
-                            color: stringToColor(item.client || item.title)
-                        });
-                    }
-                    allTaskIds.add(taskId);
+                if (!taskInfo.has(taskId)) {
+                    taskInfo.set(taskId, {
+                        label: taskLabel,
+                        color: stringToColor(item.client || item.title)
+                    });
                 }
-                curr.setDate(curr.getDate() + 1);
+                allTaskIds.add(taskId);
+            });
+        } else {
+            // Fallback: Distribuição por data prevista (apenas se houver datas)
+            const start = item.dateStart;
+            const end = item.dateEnd;
+            if (!start || !end) return;
+
+            // Calcular dias úteis
+            let businessDays = 0;
+            let d = new Date(start);
+            while (d <= end) {
+                const w = d.getDay();
+                if (w !== 0 && w !== 6) businessDays++;
+                d.setDate(d.getDate() + 1);
             }
-        });
+            if (businessDays === 0) return;
+
+            item.assignments.forEach(assign => {
+                if (filterOwner && assign.person !== filterOwner) return;
+
+                let h = 0;
+                if (metric === 'hours' || metric === 'all') h = assign.hoursTotal || 0;
+                else if (metric === 'hoursAdm') h = assign.hoursAdm || 0;
+                else if (metric === 'hoursProject') h = assign.hoursProject || 0;
+
+                if (h <= 0) return;
+
+                const dailyHours = h / businessDays;
+                let curr = new Date(start);
+                while (curr <= end) {
+                    const w = curr.getDay();
+                    if (w !== 0 && w !== 6) {
+                        const dateKey = curr.toISOString().split('T')[0];
+                        const taskId = item.id;
+                        const taskLabel = `${item.id || '?'} - ${item.client || item.title}`;
+
+                        if (!dailyMap.has(dateKey)) dailyMap.set(dateKey, {});
+                        const entry = dailyMap.get(dateKey);
+
+                        entry[taskId] = (entry[taskId] || 0) + dailyHours;
+
+                        if (!taskInfo.has(taskId)) {
+                            taskInfo.set(taskId, {
+                                label: taskLabel,
+                                color: stringToColor(item.client || item.title)
+                            });
+                        }
+                        allTaskIds.add(taskId);
+                    }
+                    curr.setDate(curr.getDate() + 1);
+                }
+            });
+        }
     });
 
     // 2. Ordenar Datas
@@ -1515,13 +1807,10 @@ function processDailyScheduleData(data, metric, filterOwner) {
         };
     });
 
-    // Formatar labels de data (ex: 05/02 Seg)
+    // Formatar labels de data usando formatDatePT
     const formattedLabels = sortedDates.map(dateStr => {
         const d = new Date(dateStr + 'T12:00:00'); // Safe timezone
-        const day = String(d.getDate()).padStart(2, '0');
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const week = d.toLocaleDateString('pt-BR', { weekday: 'short' });
-        return `${day}/${month} ${week}`;
+        return formatDatePT(d, 'weekday'); // Formato: 05/02 seg
     });
 
     return {
@@ -1556,19 +1845,18 @@ function renderDailyList(data, metric, filterOwner) {
         const dayTasks = dailySchedule[dateKey];
         if (!dayTasks || dayTasks.length === 0) return;
 
-        // Header do Dia
+        // Header do Dia - usando formatDatePT
         const parts = dateKey.split('-');
         const dateObj = new Date(parts[0], parts[1] - 1, parts[2]);
-        const dayStr = String(dateObj.getDate()).padStart(2, '0');
-        const monthStr = String(dateObj.getMonth() + 1).padStart(2, '0');
 
+        const dateFormatted = formatDatePT(dateObj, 'short'); // 02/03
         const weekDay = dateObj.toLocaleDateString('pt-BR', { weekday: 'long' });
         const weekDayPretty = weekDay.charAt(0).toUpperCase() + weekDay.slice(1);
 
         const dateHeader = document.createElement('div');
         dateHeader.style.cssText = 'background-color: #f3f6f9; border-left: 5px solid #0b4f78; padding: 10px 15px; margin-top: 20px; margin-bottom: 12px; font-family: Segoe UI, sans-serif; color: #2c3e50; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.03);';
 
-        dateHeader.innerHTML = '<div style="display:flex; align-items:baseline;"><span style="font-size: 1.2rem; font-weight: bold; margin-right: 8px;">' + dayStr + '/' + monthStr + '</span><span style="font-size: 1rem; color: #666;">' + weekDayPretty + '</span></div><span style="font-size:0.75rem; background:#dfe6ed; color:#444; padding:3px 8px; border-radius:12px; font-weight:600;">' + dayTasks.length + ' tarefas</span>';
+        dateHeader.innerHTML = '<div style="display:flex; align-items:baseline;"><span style="font-size: 1.2rem; font-weight: bold; margin-right: 8px;">' + dateFormatted + '</span><span style="font-size: 1rem; color: #666;">' + weekDayPretty + '</span></div><span style="font-size:0.75rem; background:#dfe6ed; color:#444; padding:3px 8px; border-radius:12px; font-weight:600;">' + dayTasks.length + ' tarefas</span>';
         listContainer.appendChild(dateHeader);
 
         // Grid de Cards
@@ -1596,18 +1884,22 @@ function processDailyListHelper(data, metric, filterOwner) {
     const dates = {};
 
     data.forEach(item => {
-        const granularData = item.raw && item.raw['_csv2Details'] && item.raw['_csv2Details'].lancamentos;
+        const apontamentos = item._apontamentos || [];
 
-        if (granularData && Array.isArray(granularData) && granularData.length > 0) {
-            granularData.forEach(entry => {
-                if (filterOwner && entry.person !== filterOwner) return;
+        if (apontamentos.length > 0) {
+            apontamentos.forEach(a => {
+                const person = safeStr(a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador || a.NomeColaborador || a.Colaborador || a.colaborador);
+                if (filterOwner && person !== filterOwner) return;
 
-                let h = entry.hours;
-                if (metric === 'hoursAdm' && entry.type !== 'adm') h = 0;
-                if (metric === 'hoursProject' && entry.type !== 'project') h = 0;
+                let h = toNumber(a.Horas || a.horas || 0);
+                const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora).toLowerCase();
+
+                if (metric === 'hoursAdm' && !tipo.includes('adm')) h = 0;
+                else if (metric === 'hoursProject' && tipo.includes('adm')) h = 0;
+
                 if (h <= 0) return;
 
-                const dateObj = parseDate(entry.date);
+                const dateObj = parseDate(a.Data || a.data);
                 if (!dateObj) return;
 
                 const y = dateObj.getFullYear();
@@ -1619,64 +1911,13 @@ function processDailyListHelper(data, metric, filterOwner) {
                 dates[dateKey].push({
                     id: item.id,
                     client: item.client || item.title,
-                    person: entry.person,
+                    person: person,
                     hours: h,
-                    type: entry.type
-                });
-            });
-        }
-        else {
-            const start = item.dateStart;
-            const end = item.dateEnd;
-            if (!start || !end) return;
-
-            let assignments = item.assignments;
-            if (assignments.length === 0 && item.owner) {
-                assignments = [{ person: item.owner, hoursTotal: getMetricValue(item, 'hours') }];
-            }
-
-            const daysInInterval = [];
-            let d = new Date(start);
-            d.setHours(0, 0, 0, 0);
-            const endDate = new Date(end);
-            endDate.setHours(0, 0, 0, 0);
-
-            while (d <= endDate) {
-                const w = d.getDay();
-                if (w !== 0 && w !== 6) {
-                    const y = d.getFullYear();
-                    const m = String(d.getMonth() + 1).padStart(2, '0');
-                    const day = String(d.getDate()).padStart(2, '0');
-                    daysInInterval.push(y + '-' + m + '-' + day);
-                }
-                d.setDate(d.getDate() + 1);
-            }
-            const businessDays = daysInInterval.length;
-            if (businessDays === 0) return;
-
-            assignments.forEach(assign => {
-                if (filterOwner && assign.person !== filterOwner) return;
-
-                let h = 0;
-                if (metric === 'hours' || metric === 'all') h = assign.hoursTotal || 0;
-                else if (metric === 'hoursAdm') h = assign.hoursAdm || 0;
-                else if (metric === 'hoursProject') h = assign.hoursProject || 0;
-                if (h <= 0) return;
-
-                const dailyHours = h / businessDays;
-
-                daysInInterval.forEach(dateKey => {
-                    if (!dates[dateKey]) dates[dateKey] = [];
-                    dates[dateKey].push({
-                        id: item.id,
-                        client: item.client || item.title,
-                        person: assign.person,
-                        hours: dailyHours,
-                        type: 'mixed'
-                    });
+                    type: tipo.includes('adm') ? 'adm' : 'project'
                 });
             });
         }
     });
+
     return dates;
 }
