@@ -124,3 +124,10 @@ async function atualizarTituloChecklist(itemId, titulo) {
   });
 }
 
+async function atualizarStatusChecklist(itemId, concluido) {
+  await fetch(`http://localhost:5000/checklist/${itemId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ concluido })
+  });
+}
