@@ -116,3 +116,11 @@ async function saveChecklist(task) {
   }
 }
 
+async function atualizarTituloChecklist(itemId, titulo) {
+  await fetch(`http://localhost:5000/checklist/${itemId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ titulo })
+  });
+}
+
