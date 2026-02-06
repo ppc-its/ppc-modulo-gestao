@@ -31,7 +31,7 @@ function renderChecklist(task, container) {
     checkbox.addEventListener("change", async () => {
       item.done = checkbox.checked;
       itemEl.querySelector(".checklist-text").classList.toggle("done", item.done);
-      await atualizarStatusChecklist(item.id, item.done);
+      await api.updateChecklistStatus(item.id, item.done);
     });
 
     const textInput = itemEl.querySelector(".checklist-text");
@@ -39,7 +39,7 @@ function renderChecklist(task, container) {
       const novoTexto = textInput.value.trim();
       if (novoTexto && novoTexto !== item.text) {
         item.text = novoTexto;
-        await atualizarTituloChecklist(item.id, novoTexto);
+        await api.updateChecklistTitle(item.id, novoTexto);
       }
     });
 
@@ -51,14 +51,7 @@ function renderChecklist(task, container) {
     if (e.key === "Enter" && addInput.value.trim()) {
       const texto = addInput.value.trim();
 
-      await fetch("https://ppc-gestao.brazilsouth.cloudapp.azure.com/checklist/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          demanda_id: Number(task.id),
-          tarefas: [texto]
-        })
-      });
+      await api.createChecklistItem(task.id, texto);
 
       // Recarrega do backend para pegar o ID real
       task.checklist = await loadChecklistFromAPI(task.id);
@@ -67,13 +60,9 @@ function renderChecklist(task, container) {
   });
 }
 
-
 async function loadChecklistFromAPI(demandaId) {
   try {
-    const response = await fetch(`https://ppc-gestao.brazilsouth.cloudapp.azure.com/checklist/${Number(demandaId)}`);
-    if (!response.ok) throw new Error("Falha ao carregar checklist");
-
-    const data = await response.json();
+    const data = await api.getChecklist(demandaId);
 
     return data.tarefas.map(item => ({
       id: item.id,
@@ -86,48 +75,18 @@ async function loadChecklistFromAPI(demandaId) {
   }
 }
 
-
 async function saveChecklist(task) {
   if (typeof saveToLocalStorage === "function") {
-    saveToLocalStorage(tasks); 
+    saveToLocalStorage(tasks);
   }
 
-  const payload = {
-    demanda_id: Number(task.id), 
-    tarefas: task.checklist.map(item => item.text)
-  };
-
   try {
-    const response = await fetch("https://ppc-gestao.brazilsouth.cloudapp.azure.com/checklist/", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      throw new Error(`Erro na API: ${response.statusText}`);
+    for (const item of task.checklist) {
+      await api.createChecklistItem(task.id, item.text);
     }
 
     console.log(`Checklist da demanda ${task.id} sincronizado com sucesso.`);
   } catch (error) {
     console.error("Erro ao salvar checklist na API:", error);
   }
-}
-
-async function atualizarTituloChecklist(itemId, titulo) {
-  await fetch(`https://ppc-gestao.brazilsouth.cloudapp.azure.com/checklist/${itemId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ titulo })
-  });
-}
-
-async function atualizarStatusChecklist(itemId, concluido) {
-  await fetch(`https://ppc-gestao.brazilsouth.cloudapp.azure.com/checklist/${itemId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ concluido })
-  });
 }

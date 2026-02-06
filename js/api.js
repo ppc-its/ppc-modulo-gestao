@@ -3,76 +3,96 @@
    Centraliza todas as chamadas de fetch para o Backend Python/Flask
    ========================= */
 
-const API_BASE_URL = "http://localhost:5000/lists";
+const API_BASE_URL = "http://localhost:5000";
+const LISTS_BASE_URL = `${API_BASE_URL}/lists`;
 
 const api = {
+    /* =========================
+       DEMANDAS
+       ========================= */
     async getTasks() {
-        try {
-            const resp = await fetch(`${API_BASE_URL}/demandas`);
-            if (!resp.ok) throw new Error(`Erro na API: ${resp.status}`);
-            const data = await resp.json();
-            return Array.isArray(data) ? data : (data.tasks || []);
-        } catch (e) {
-            console.error("Falha ao trazer tarefas:", e);
-            throw e;
-        }
-    },
-
-    async getApontamentos() {
-        try {
-            const resp = await fetch(`${API_BASE_URL}/apontamentos`);
-            if (!resp.ok) throw new Error(`Erro na API: ${resp.status}`);
-            const apontamentos = await resp.json();
-            return Array.isArray(apontamentos) ? apontamentos : (apontamentos.apontamentos || []);
-        } catch (e) {
-            console.error("Falha ao buscar apontamentos:", e);
-            throw e;
-        }
+        const resp = await fetch(`${LISTS_BASE_URL}/demandas`);
+        if (!resp.ok) throw new Error(`Erro na API: ${resp.status}`);
+        const data = await resp.json();
+        return Array.isArray(data) ? data : (data.tasks || []);
     },
 
     async updateTask(id, updates) {
-        try {
-            const payload = {};
-            if (updates.status !== undefined) {
-                payload["Status"] = updates.status;
-            }
-
-            const resp = await fetch(`${API_BASE_URL}/demanda/${id}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
-            });
-
-            if (!resp.ok) throw new Error(`Erro na API: ${resp.status}`);
-            return await resp.json();
-        } catch (e) {
-            console.error(`Falha ao atualizar tarefa ${id}:`, e);
-            throw e;
+        const payload = {};
+        if (updates.status !== undefined) {
+            payload["Status"] = updates.status;
         }
+
+        const resp = await fetch(`${LISTS_BASE_URL}/demanda/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+
+        if (!resp.ok) throw new Error(`Erro na API: ${resp.status}`);
+        return resp.json();
     },
 
-    /*
-        async uploadCSV(file) {
-            const formData = new FormData();
-            formData.append("file", file);
-    
-            try {
-                const resp = await fetch(`${API_BASE_URL}/upload_csv`, {
-                    method: "POST",
-                    body: formData
-                });
-                if (!resp.ok) throw new Error(`Falha no Upload: ${resp.status}`);
-                return await resp.json();
-            } catch (e) {
-                console.error("Upload de CSV falhou:", e);
-                throw e;
-            }
-        }
-    */
+    /* =========================
+       APONTAMENTOS
+       ========================= */
+    async getApontamentos() {
+        const resp = await fetch(`${LISTS_BASE_URL}/apontamentos`);
+        if (!resp.ok) throw new Error(`Erro na API: ${resp.status}`);
+        const data = await resp.json();
+        return Array.isArray(data) ? data : (data.apontamentos || []);
+    },
+
+    /* =========================
+       CHECKLIST
+       ========================= */
+
+    async getChecklist(demandaId) {
+        const resp = await fetch(`${API_BASE_URL}/checklist/${Number(demandaId)}`);
+        if (!resp.ok) throw new Error("Falha ao carregar checklist");
+        return resp.json();
+    },
+
+    async createChecklistItem(demandaId, texto) {
+        const resp = await fetch(`${API_BASE_URL}/checklist/`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                demanda_id: Number(demandaId),
+                tarefas: [texto]
+            })
+        });
+
+        if (!resp.ok) throw new Error("Erro ao criar item do checklist");
+        return resp.json();
+    },
+
+    async updateChecklistTitle(itemId, titulo) {
+        const resp = await fetch(`${API_BASE_URL}/checklist/${itemId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ titulo })
+        });
+
+        if (!resp.ok) throw new Error("Erro ao atualizar título do checklist");
+        return resp.json();
+    },
+
+    async updateChecklistStatus(itemId, concluido) {
+        const resp = await fetch(`${API_BASE_URL}/checklist/${itemId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ concluido })
+        });
+
+        if (!resp.ok) throw new Error("Erro ao atualizar status do checklist");
+        return resp.json();
+    }
 };
 
 // Expor globalmente
 window.api = api;
+
 
 /* =========================
    INICIALIZAÇÃO AUTOMÁTICA
