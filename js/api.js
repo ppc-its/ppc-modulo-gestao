@@ -1,9 +1,9 @@
 /* =========================
-   PPC Task Board - Serviço de API
-   Centraliza todas as chamadas de fetch para o Backend Python/Flask
+   PPC Task Board - Serviço de API (Versão Direta Porta 5000)
    ========================= */
 
-const API_BASE_URL = "https://ppc-gestao.brazilsouth.cloudapp.azure.com";
+// Adicionamos a porta 5000 para pular o Apache e falar direto com o Flask
+const API_BASE_URL = "https://ppc-gestao.brazilsouth.cloudapp.azure.com:5000";
 const LISTS_BASE_URL = `${API_BASE_URL}/lists`;
 
 const api = {
@@ -44,19 +44,14 @@ const api = {
     },
 
     /* =========================
-       CHECKLIST
+       CHECKLIST (Removido o prefixo /api que não existe no Flask)
        ========================= */
-
-/* =========================
-   CHECKLIST (Versão Corrigida)
-   ========================= */
-
     async getChecklist(demandaId) {
         const cleanId = String(demandaId).replace(/\D/g, ''); 
-        
         if (!cleanId) throw new Error("ID da demanda inválido");
 
-        const resp = await fetch(`${API_BASE_URL}/api/checklist/${cleanId}`);
+        // Chamada direta para o endpoint do Flask: /checklist/ID
+        const resp = await fetch(`${API_BASE_URL}/checklist/${cleanId}`);
         
         if (!resp.ok) {
             console.error(`Erro ao buscar checklist ${cleanId}: Status ${resp.status}`);
@@ -68,7 +63,7 @@ const api = {
     async createChecklistItem(demandaId, texto) {
         const cleanId = String(demandaId).replace(/\D/g, '');
         
-        const resp = await fetch(`${API_BASE_URL}/api/checklist/`, { // Verifique se precisa da / final
+        const resp = await fetch(`${API_BASE_URL}/checklist/`, { 
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -82,7 +77,7 @@ const api = {
     },
 
     async updateChecklistTitle(itemId, titulo) {
-        const resp = await fetch(`${API_BASE_URL}/api/checklist/${itemId}`, {
+        const resp = await fetch(`${API_BASE_URL}/checklist/${itemId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ titulo })
@@ -93,7 +88,7 @@ const api = {
     },
 
     async updateChecklistStatus(itemId, concluido) {
-        const resp = await fetch(`${API_BASE_URL}/api/checklist/${itemId}`, {
+        const resp = await fetch(`${API_BASE_URL}/checklist/${itemId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ concluido })
@@ -104,32 +99,22 @@ const api = {
     }
 };
 
-// Expor globalmente
 window.api = api;
 
-
 /* =========================
-   INICIALIZAÇÃO AUTOMÁTICA
-   Aciona as APIs ao carregar a página
+   INICIALIZAÇÃO
    ========================= */
-
 async function initApp() {
-    console.log("Iniciando carregamento de dados...");
+    console.log("Conectando ao Backend na porta 5000...");
     try {
-        // Promise.all executa ambas as chamadas simultaneamente
         const [tarefas, apontamentos] = await Promise.all([
             api.getTasks(),
             api.getApontamentos()
         ]);
-
-        console.log("✅ Tarefas carregadas:", tarefas);
-        console.log("✅ Apontamentos carregados:", apontamentos);
-
+        console.log("✅ Dados sincronizados com sucesso!");
     } catch (error) {
-        console.error("❌ Erro na inicialização:", error);
-        alert("Não foi possível conectar ao servidor Flask.");
+        console.error("❌ Erro de conexão:", error);
     }
 }
 
-// Escuta o evento de carregamento do DOM para rodar a função
 document.addEventListener("DOMContentLoaded", initApp);
