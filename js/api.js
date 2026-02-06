@@ -56,7 +56,7 @@ const api = {
         
         if (!cleanId) throw new Error("ID da demanda inválido");
 
-        const resp = await fetch(`${API_BASE_URL}/checklist/${cleanId}`);
+        const resp = await fetch(`${API_BASE_URL}/api/checklist/${cleanId}`);
         
         if (!resp.ok) {
             console.error(`Erro ao buscar checklist ${cleanId}: Status ${resp.status}`);
@@ -68,7 +68,7 @@ const api = {
     async createChecklistItem(demandaId, texto) {
         const cleanId = String(demandaId).replace(/\D/g, '');
         
-        const resp = await fetch(`${API_BASE_URL}/checklist/`, { // Verifique se precisa da / final
+        const resp = await fetch(`${API_BASE_URL}/api/checklist/`, { // Verifique se precisa da / final
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -82,7 +82,7 @@ const api = {
     },
 
     async updateChecklistTitle(itemId, titulo) {
-        const resp = await fetch(`${API_BASE_URL}/checklist/${itemId}`, {
+        const resp = await fetch(`${API_BASE_URL}/api/checklist/${itemId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ titulo })
@@ -93,7 +93,7 @@ const api = {
     },
 
     async updateChecklistStatus(itemId, concluido) {
-        const resp = await fetch(`${API_BASE_URL}/checklist/${itemId}`, {
+        const resp = await fetch(`${API_BASE_URL}/api/checklist/${itemId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ concluido })
