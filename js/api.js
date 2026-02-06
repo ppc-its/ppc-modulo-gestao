@@ -47,18 +47,32 @@ const api = {
        CHECKLIST
        ========================= */
 
+/* =========================
+   CHECKLIST (Versão Corrigida)
+   ========================= */
+
     async getChecklist(demandaId) {
-        const resp = await fetch(`${API_BASE_URL}/checklist/${Number(demandaId)}`);
-        if (!resp.ok) throw new Error("Falha ao carregar checklist");
+        const cleanId = String(demandaId).replace(/\D/g, ''); 
+        
+        if (!cleanId) throw new Error("ID da demanda inválido");
+
+        const resp = await fetch(`${API_BASE_URL}/checklist/${cleanId}`);
+        
+        if (!resp.ok) {
+            console.error(`Erro ao buscar checklist ${cleanId}: Status ${resp.status}`);
+            throw new Error("Falha ao carregar checklist");
+        }
         return resp.json();
     },
 
     async createChecklistItem(demandaId, texto) {
-        const resp = await fetch(`${API_BASE_URL}/checklist/`, {
+        const cleanId = String(demandaId).replace(/\D/g, '');
+        
+        const resp = await fetch(`${API_BASE_URL}/checklist/`, { // Verifique se precisa da / final
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                demanda_id: Number(demandaId),
+                demanda_id: Number(cleanId),
                 tarefas: [texto]
             })
         });
