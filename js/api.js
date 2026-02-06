@@ -3,7 +3,7 @@
    Centraliza todas as chamadas de fetch para o Backend Python/Flask
    ========================= */
 
-const API_BASE_URL = "https://ppc-gestao.brazilsouth.cloudapp.azure.com/";
+const API_BASE_URL = "https://ppc-gestao.brazilsouth.cloudapp.azure.com";
 const LISTS_BASE_URL = `${API_BASE_URL}/lists`;
 
 const api = {
