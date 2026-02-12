@@ -321,7 +321,7 @@
                     </select></div>
                 <div class="control"><label>Visão Responsáveis</label><select id="respViewSelect">
                         <option value="individual">Individual (Detalhado)</option>
-                        <option value="individual_monthly">Mensal por Responsável</option>
+                        <option value="individual_monthly" selected>Mensal por Responsável</option>
                         <option value="aggregated">Consolidado (Soma Equipe)</option>
                     </select></div>
                 <div class="control"><label>Métrica</label><select id="metricSelect">
@@ -329,6 +329,7 @@
                         <option value="hours">Horas Totais</option>
                         <option value="hoursProject">Horas Projeto</option>
                         <option value="hoursAdm">Horas ADM</option>
+                        <option value="hoursTraining">Horas Treinamento</option>
                     </select></div>
                 <div class="control"><label>Prazo</label><select id="deadlineSelect">
                         <option value="all">Todos</option>
@@ -367,6 +368,50 @@
                     <h3>Horas por Status</h3>
                     <div class="chart-container"><canvas id="chartStatus"></canvas></div>
                 </div>
+                <!-- Nova Seção: Tabela de Tipos de Horas -->
+                <div class="chart-card" style="grid-column: 1 / -1; min-height: auto;">
+                    <h3>Análise por Tipo de Horas</h3>
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                        <!-- Tabela Resumo -->
+                        <div style="flex: 1; min-width: 300px;">
+                            <table class="data-table" id="hourTypeSummaryTable">
+                                <thead>
+                                    <tr>
+                                        <th>Tipo de Hora</th>
+                                        <th style="text-align: right;">Horas</th>
+                                        <th style="text-align: right;">%</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Injetado via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Tabela Detalhes (inicialmente oculta ou vazia) -->
+                        <div style="flex: 2; min-width: 300px; border-left: 1px solid #eee; padding-left: 20px;">
+                            <h4 id="hourTypeDetailTitle" style="margin-top: 0; color: var(--panel-2); opacity: 0.7;">
+                                Selecione um tipo ao lado para ver detalhes
+                            </h4>
+                            <div class="table-container" style="max-height: 300px; overflow-y: auto;">
+                                <table class="data-table" id="hourTypeDetailTable" style="display: none; width: 100%;">
+                                    <thead>
+                                        <tr>
+                                            <th>Cliente</th>
+                                            <th>Projeto / Demanda</th>
+                                            <th>Responsável</th>
+                                            <th style="text-align: right;">Horas</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <!-- Injetado via JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Nova Seção: Cronograma Diário -->
                 <div class="card" style="grid-column: span 2; min-height: 450px; margin-bottom: 20px;">
                     <div class="card-header">

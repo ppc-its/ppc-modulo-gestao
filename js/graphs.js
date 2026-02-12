@@ -87,6 +87,7 @@ let chartTypeInstance = null;
 let chartStatusInstance = null;
 // chartTimelineInstance REMOVIDO
 let chartResponsibleInstance = null;
+let selectedHourType = null; // Nova variável de estado para a tabela de tipos de horas
 let APP_DATA = []; // Manterá os dados carregados
 const LOCAL_STORAGE_KEY = "ppc_task_board_data_v1";
 
@@ -412,12 +413,8 @@ function processTasks(tasks) {
             "Demanda";
 
         // Responsável - tentar múltiplas variações
-        const owner =
-            t.responsible ||
-            raw["Responsável Demanda"] ||
-            raw.responsavel ||
-            raw.Responsavel ||
-            "Sem Responsável";
+        // Responsável - Somente via Apontamentos (assignments)
+        const owner = assignments.map(a => a.person).join(", ") || "Sem Responsável";
 
         // Tipo - tentar múltiplas variações
         const type =
@@ -450,7 +447,8 @@ function processTasks(tasks) {
             dateEnd: parseDate(dateEndStr),
             get date() { return this.dateEnd || new Date(); },
             raw: raw,
-            _apontamentos: apontamentos // Preservar para uso posterior
+            _apontamentos: apontamentos, // Preservar para uso posterior
+            prpId: raw["ID - PRP (RentSoft)"] || "" // Extrair PRP ID
         };
 
         return result;
@@ -581,6 +579,10 @@ function populateFilters() {
     });
 }
 
+// Filtros interativos (clique no gráfico)
+let selectedStatus = null;
+let selectedType = null;
+
 function setupEventListeners() {
     // Filtros automáticos (change)
     const filterIds = [
@@ -606,6 +608,42 @@ function setupEventListeners() {
     document.getElementById('btnReset').addEventListener('click', resetFilters);
 }
 
+function renderFilterBanner() {
+    const banner = document.getElementById('banner');
+    if (!banner) return;
+
+    const parts = [];
+    if (selectedStatus) parts.push(`Status: <b>${selectedStatus}</b> <span class="clear-filter" onclick="clearStatusFilter()">✖</span>`);
+    if (selectedType) parts.push(`Tipo: <b>${selectedType}</b> <span class="clear-filter" onclick="clearTypeFilter()">✖</span>`);
+
+    // Check dropdowns too
+    const client = document.getElementById('clientSelect').value;
+    const owner = document.getElementById('respSelect').value;
+
+    if (parts.length > 0) {
+        banner.innerHTML = `Filtros Ativos: ${parts.join(' &nbsp; | &nbsp; ')}`;
+        banner.classList.remove('hidden');
+        banner.style.display = 'block';
+        banner.style.background = '#e0f2fe';
+        banner.style.color = '#0c4a6e';
+        banner.style.border = '1px solid #bae6fd';
+    } else {
+        banner.classList.add('hidden');
+        banner.style.display = 'none';
+    }
+}
+
+// Global functions for banner onclick
+window.clearStatusFilter = function () {
+    selectedStatus = null;
+    applyFilters();
+};
+
+window.clearTypeFilter = function () {
+    selectedType = null;
+    applyFilters();
+};
+
 function resetFilters() {
     document.getElementById('periodSelect').value = "90";
     document.getElementById('customDateContainer').style.display = 'none'; // Hide on reset
@@ -615,7 +653,11 @@ function resetFilters() {
     document.getElementById('respSelect').value = "";
     document.getElementById('metricSelect').value = "all";
     document.getElementById('deadlineSelect').value = "all";
-    document.getElementById('respViewSelect').value = "individual";
+    document.getElementById('respViewSelect').value = "individual_monthly";
+
+    selectedStatus = null;
+    selectedType = null;
+
     applyFilters();
 }
 
@@ -631,11 +673,19 @@ function applyFilters() {
     const startStr = document.getElementById('startDate').value;
     const endStr = document.getElementById('endDate').value;
 
+    // Render Banner
+    renderFilterBanner();
+
     // Parse custom dates (start of day / end of day)
     let customStart = startStr ? new Date(startStr + 'T00:00:00') : null;
     let customEnd = endStr ? new Date(endStr + 'T23:59:59') : null;
 
     let filtered = APP_DATA.filter(item => {
+        // Filtro Interativo (Status)
+        if (selectedStatus && item.status !== selectedStatus) return false;
+        // Filtro Interativo (Tipo)
+        if (selectedType && item.type !== selectedType) return false;
+
         // Filtro de Cliente
         if (client && item.client !== client) return false;
         // Filtro de Responsável
@@ -714,6 +764,222 @@ function applyFilters() {
     updateCharts(filtered, metric, viewMode, owner);
 }
 
+function renderHourTypeTable(data) {
+    const tbody = document.querySelector('#hourTypeSummaryTable tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    // 1. Calcular Totais
+    let totalProject = 0;
+    let totalAdm = 0;
+
+    data.forEach(d => {
+        totalProject += (d.hoursProject || 0);
+        totalAdm += (d.hoursAdm || 0);
+    });
+
+    const grandTotal = totalProject + totalAdm;
+
+    // Helper para criar linha
+    const createRow = (typeId, label, val, color) => {
+        const tr = document.createElement('tr');
+        tr.style.cursor = 'pointer';
+        tr.style.borderBottom = '1px solid #eee';
+
+        // Highlight se selecionado
+        if (selectedHourType === typeId) {
+            tr.style.backgroundColor = 'rgba(12, 157, 228, 0.1)';
+            tr.style.fontWeight = 'bold';
+        }
+
+        const pct = grandTotal > 0 ? ((val / grandTotal) * 100).toFixed(1) + '%' : '0.0%';
+
+        tr.innerHTML = `
+            <td style="padding: 10px; display: flex; align-items: center; gap: 8px;">
+                <div style="width: 12px; height: 12px; border-radius: 50%; background-color: ${color};"></div>
+                ${label}
+            </td>
+            <td style="padding: 10px; text-align: right; font-family: monospace; font-size: 1.1em;">${val.toFixed(2)}h</td>
+            <td style="padding: 10px; text-align: right; color: #666; font-size: 0.9em;">${pct}</td>
+        `;
+
+        tr.onclick = () => {
+            // Toggle logic
+            if (selectedHourType === typeId) {
+                selectedHourType = null;
+                // Se toggle off, e tiver filtro global, voltar para 'all' automático? 
+                // Melhor: se toggle off, voltar para o estado automático
+                if (selectedStatus || selectedType) {
+                    renderHourTypeDetails('all', data);
+                } else {
+                    document.getElementById('hourTypeDetailTable').style.display = 'none';
+                    const title = document.getElementById('hourTypeDetailTitle');
+                    if (title) {
+                        title.style.display = 'block';
+                        title.textContent = 'Selecione um tipo ao lado para ver detalhes';
+                    }
+                }
+            } else {
+                selectedHourType = typeId;
+            }
+            // Re-renderizar tabela resumo para atualizar highlight
+            renderHourTypeTable(data);
+        };
+
+        return tr;
+    };
+
+    // Renderizar Linhas
+    tbody.appendChild(createRow('project', 'Horas Projeto', totalProject, '#36A2EB'));
+    tbody.appendChild(createRow('adm', 'Horas ADM', totalAdm, '#FF9F40'));
+
+    // Adicionar Total Geral
+    const trTotal = document.createElement('tr');
+    trTotal.style.fontWeight = 'bold';
+    trTotal.style.backgroundColor = '#fafafa';
+    trTotal.style.cursor = 'pointer';
+
+    // Total também clícavel para "Ver Tudo" explicitamente
+    trTotal.onclick = () => {
+        // Toggle logic for Total
+        if (selectedHourType === 'all') {
+            selectedHourType = null; // Reset
+        } else {
+            selectedHourType = 'all';
+        }
+        renderHourTypeTable(data);
+    };
+
+    if (selectedHourType === 'all') {
+        trTotal.style.backgroundColor = 'rgba(12, 157, 228, 0.1)';
+    }
+
+    trTotal.innerHTML = `
+        <td style="padding: 10px;">TOTAL</td>
+        <td style="padding: 10px; text-align: right; font-family: monospace; font-size: 1.1em;">${grandTotal.toFixed(2)}h</td>
+        <td style="padding: 10px; text-align: right;">100%</td>
+    `;
+    tbody.appendChild(trTotal);
+
+    // LÓGICA DE EXIBIÇÃO AUTOMÁTICA
+    // Se o usuário selecionou uma linha na tabela (project, adm, all), mostramos isso (tem prioridade).
+    if (selectedHourType) {
+        renderHourTypeDetails(selectedHourType, data);
+    }
+    // Se NÃO selecionou nada na tabela, mas tem filtros globais (Gráfico clicado), mostramos 'all' automaticamente
+    else if (selectedStatus || selectedType) {
+        renderHourTypeDetails('all', data);
+    }
+    else {
+        // Estado inicial "Limpo" - Ocultar detalhes para evitar poluição visual
+        const detailTable = document.getElementById('hourTypeDetailTable');
+        const detailTitle = document.getElementById('hourTypeDetailTitle');
+        if (detailTable) detailTable.style.display = 'none';
+        if (detailTitle) {
+            detailTitle.style.display = 'block';
+            detailTitle.textContent = 'Selecione um tipo ou filtre os gráficos para ver detalhes';
+        }
+    }
+}
+
+function renderHourTypeDetails(type, data) {
+    const detailTable = document.getElementById('hourTypeDetailTable');
+    const detailTbody = detailTable.querySelector('tbody');
+    const detailTitle = document.getElementById('hourTypeDetailTitle');
+
+    if (!detailTable || !detailTbody) return;
+
+    detailTbody.innerHTML = '';
+    detailTable.style.display = 'table';
+
+    // Atualizar Título
+    let label = 'Todos os Tipos';
+    if (type === 'project') label = 'Horas Projeto';
+    else if (type === 'adm') label = 'Horas ADM';
+    else if (type === 'all') label = 'Visão Detalhada por Tipo';
+
+    // Se houver filtros globais, adiciona ao título
+    if (selectedStatus) label += ` (Status: ${selectedStatus})`;
+    if (selectedType) label += ` (Tipo: ${selectedType})`;
+
+    detailTitle.textContent = `Detalhamento: ${label}`;
+    detailTitle.style.display = 'block';
+
+    // 1. Filtrar dados - AGORA DIVIDINDO PROJETO vs ADM
+    const items = [];
+
+    data.forEach(task => {
+        // Se type for 'all', verificamos AMBOS
+        // Se type for 'project', só verificamos project
+        // Se type for 'adm', só verificamos adm
+
+        // Check Project Hours
+        if (type === 'all' || type === 'project') {
+            const val = task.hoursProject || 0;
+            if (val > 0.01) {
+                items.push({
+                    client: task.client,
+                    title: task.title,
+                    owner: task.owner,
+                    hours: val,
+                    typeLabel: 'PROJETO',
+                    typeColor: '#36A2EB',
+                    bg: '#eef8ff'
+                });
+            }
+        }
+
+        // Check ADM Hours
+        if (type === 'all' || type === 'adm') {
+            const val = task.hoursAdm || 0;
+            if (val > 0.01) {
+                items.push({
+                    client: task.client,
+                    title: task.title,
+                    owner: task.owner,
+                    hours: val,
+                    typeLabel: 'ADM',
+                    typeColor: '#FF9F40',
+                    bg: '#fff8f3'
+                });
+            }
+        }
+    });
+
+    // 2. Ordenar por horas descrescente
+    items.sort((a, b) => b.hours - a.hours);
+
+    // 3. Renderizar
+    if (items.length === 0) {
+        detailTbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px; color: #888;">Nenhum registro encontrado para esta seleção.</td></tr>';
+        return;
+    }
+
+    items.forEach(item => {
+        const tr = document.createElement('tr');
+        // tr.style.backgroundColor = item.bg; // Opcional: cor de fundo sutil
+
+        tr.innerHTML = `
+            <td style="padding: 8px; font-size: 0.9em;">
+                <span class="client-badge" style="background: ${item.bg}; color: ${item.typeColor}; border: 1px solid ${item.typeColor}20;">
+                    ${item.client}
+                </span>
+            </td>
+            <td style="padding: 8px; font-weight: 600; color: #334155;">
+                <span style="font-size: 0.75em; font-weight: 800; color: #fff; background-color: ${item.typeColor}; padding: 2px 6px; border-radius: 4px; margin-right: 6px;">
+                    ${item.typeLabel}
+                </span>
+                ${item.title}
+            </td>
+            <td style="padding: 8px; font-size: 0.9em; color: #64748b;">${item.owner}</td>
+            <td style="padding: 8px; text-align: right; font-weight: bold; font-family: monospace; color: ${item.typeColor};">
+                ${item.hours.toFixed(2)}h
+            </td>
+        `;
+        detailTbody.appendChild(tr);
+    });
+}
+
 function initCharts(data, metric) {
     // 1. Tipo de Demanda
     const typeData = processTypeData(data, metric);
@@ -760,6 +1026,18 @@ function initCharts(data, metric) {
                     borderRadius: 4,
                     padding: 4
                 }
+            },
+            onClick: (e, elements) => {
+                if (elements.length > 0) {
+                    const idx = elements[0].index;
+                    const label = chartTypeInstance.data.labels[idx];
+                    if (selectedType === label) selectedType = null; // Toggle off
+                    else selectedType = label;
+                    applyFilters();
+                }
+            },
+            onHover: (event, chartElement) => {
+                event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
             }
         },
         plugins: [ChartDataLabels]
@@ -810,7 +1088,19 @@ function initCharts(data, metric) {
                     padding: { top: 2, bottom: 2, left: 6, right: 6 }
                 }
             },
-            layout: { padding: { top: 25 } }
+            layout: { padding: { top: 25 } },
+            onClick: (e, elements) => {
+                if (elements.length > 0) {
+                    const idx = elements[0].index;
+                    const label = chartStatusInstance.data.labels[idx];
+                    if (selectedStatus === label) selectedStatus = null; // Toggle
+                    else selectedStatus = label;
+                    applyFilters();
+                }
+            },
+            onHover: (event, chartElement) => {
+                event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
+            }
         },
         plugins: [ChartDataLabels]
     });
@@ -819,7 +1109,7 @@ function initCharts(data, metric) {
     renderDeliveryDashboard(data);
 
     // 4. Responsável vs Capacidade (Delegado para updateCharts para consistência)
-    updateCharts(data, metric, 'individual', null);
+    updateCharts(data, metric, 'individual_monthly', null);
 
     // 5. Cronograma Diário (Inicialização)
     updateDailyChart(data, metric, null);
@@ -838,12 +1128,14 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
         const dTotal = processStatusData(data, 'hours');
         const dProj = processStatusData(data, 'hoursProject');
         const dAdm = processStatusData(data, 'hoursAdm');
+        const dTrain = processStatusData(data, 'hoursTraining');
         const labels = Object.keys(dTotal).sort();
         chartStatusInstance.data.labels = labels;
         chartStatusInstance.data.datasets = [
             { label: 'Horas Totais', data: labels.map(k => dTotal[k]), backgroundColor: '#0b4f78', borderRadius: 6 },
             { label: 'Horas Projeto', data: labels.map(k => dProj[k]), backgroundColor: '#36A2EB', borderRadius: 6 },
-            { label: 'Horas ADM', data: labels.map(k => dAdm[k]), backgroundColor: '#FF9F40', borderRadius: 6 }
+            { label: 'Horas ADM', data: labels.map(k => dAdm[k]), backgroundColor: '#FF9F40', borderRadius: 6 },
+            { label: 'Horas Treinamento', data: labels.map(k => dTrain[k]), backgroundColor: '#9d4edd', borderRadius: 6 }
         ];
     } else {
         const statusData = processStatusData(data, metric);
@@ -901,53 +1193,76 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
             dataCapacity.push(CAPACITY);
         });
     } else if (viewMode === 'individual_monthly') {
-        // --- VISÃO INDIVIDUAL MENSAL ---
+        // --- VISÃO INDIVIDUAL MENSAL (X = Meses, Barras = Pessoas) ---
         const respData = processResponsibleData(data, respMetric, filterOwner);
-        labels = respData.persons;
+        labels = respData.labels; // Meses no Eixo X
 
-        // Plugin para desenhar linhas de capacidade dinâmica sobre cada barra
+        // Plugin para desenhar linhas de capacidade dinâmica (baseado no Mês do Eixo X)
         const capacityOverlayPlugin = {
             id: 'capacityOverlay',
             afterDatasetsDraw(chart, args, options) {
                 const { ctx, scales: { x, y } } = chart;
 
-                chart.data.datasets.forEach((dataset, i) => {
-                    const meta = chart.getDatasetMeta(i);
-                    // Ignora datasets que não são de dados temporais (ex: se houver outros)
-                    if (dataset.type === 'line') return;
+                // Desenhar capacidade para cada "Mês" (Eixo X)
+                // A linha deve cobrir a largura da categoria (mês)
+
+                const meta0 = chart.getDatasetMeta(0);
+                if (!meta0 || !meta0.data) return;
+
+                meta0.data.forEach((bar, index) => {
+                    // Identificar o mês pelo índice da barra (que corresponde ao label X)
+                    const monthKey = respData.monthKeys[index];
+                    if (!monthKey) return;
 
                     let capacity = 176;
-                    const monthName = dataset.label;
+                    // Calcular capacidade do mês
+                    const parts = monthKey.split('-');
+                    if (parts.length === 2) {
+                        const year = parseInt(parts[0]);
+                        const monthIndex = parseInt(parts[1]) - 1; // 0-indexed
+                        capacity = getMonthlyCapacity(year, monthIndex);
+                    }
 
-                    try {
-                        const parts = monthName.split('/');
-                        if (parts.length === 2) {
-                            const mStr = parts[0].toLowerCase();
-                            const yStr = '20' + parts[1];
-                            const monthsMap = {
-                                'jan': 0, 'fev': 1, 'mar': 2, 'abr': 3, 'mai': 4, 'jun': 5,
-                                'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
-                            };
-                            if (monthsMap[mStr] !== undefined) {
-                                capacity = getMonthlyCapacity(parseInt(yStr), monthsMap[mStr]);
-                            }
-                        }
-                    } catch (e) { }
+                    // Coordenadas X da categoria (Mês)
+                    // Precisamos cobrir toda a área do mês, não só a barra específica
+                    // O método getPixelForValue dá o centro da categoria
+                    // Mas como temos várias barras (pessoas), precisamos esticar a linha
 
-                    meta.data.forEach((bar) => {
-                        if (!bar.base) return;
+                    // Uma abordagem melhor: pegar o range da categoria
+                    // Mas chart.js não expõe fácil o "width" da categoria com bar chart grouped.
+                    // Vamos tentar desenhar uma linha tracejada vermelha "Global" para aquele mês?
+                    // Ou desenhar POR CIMA das barras daquele mês?
 
+                    // Vamos desenhar uma linha horizontal que cobre a largura da categoria.
+                    // Aproximação: x.getPixelForValue(index) é o centro.
+
+                    // Mas espere, se temos muitas pessoas, as barras ficam finas.
+                    // A linha de capacidade é PER CAPITA (por pessoa) ou TOTAL?
+                    // O gráfico é "Horas Totais por Responsável vs Capacidade".
+                    // Se o eixo X é Mês, e as barras são Pessoas...
+                    // Cada BARRA representa UMA pessoa naquele mês.
+                    // Então a capacidade de 176h (ou ajustada) se aplica a CADA BARRA INDIVIDUALMENTE.
+
+                    // Então devemos iterar sobre TODAS as barras de TODOS os datasets
+                    chart.data.datasets.forEach((dataset, datasetIndex) => {
+                        const meta = chart.getDatasetMeta(datasetIndex);
+                        if (meta.hidden) return;
+
+                        const bar = meta.data[index];
+                        if (!bar) return;
+
+                        // Desenhar linha APENAS sobre a barra desta pessoa
                         const xLeft = bar.x - bar.width / 2;
                         const xRight = bar.x + bar.width / 2;
                         const yPos = y.getPixelForValue(capacity);
 
                         ctx.save();
                         ctx.beginPath();
-                        ctx.strokeStyle = '#DC2626';
+                        ctx.strokeStyle = '#DC2626'; // Vermelho
                         ctx.lineWidth = 2;
-                        ctx.setLineDash([4, 3]);
-                        ctx.moveTo(xLeft - 3, yPos);
-                        ctx.lineTo(xRight + 3, yPos);
+                        ctx.setLineDash([3, 2]);
+                        ctx.moveTo(xLeft - 2, yPos);
+                        ctx.lineTo(xRight + 2, yPos);
                         ctx.stroke();
                         ctx.restore();
                     });
@@ -955,31 +1270,28 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
             }
         };
 
-        const monthColors = [
-            '#0F172A', '#334155', '#475569', '#64748B',
-            '#94A3B8', '#0EA5E9', '#0284C7', '#0369A1'
+        // Gerar Datasets (Pessoas)
+        // Cores vibrantes e profissionais
+        const palette = [
+            '#0b4f78', '#36A2EB', '#FF6384', '#4BC0C0', '#FF9F40', '#9966FF',
+            '#FFCD56', '#C9CBCF', '#2a9d8f', '#e76f51', '#264653', '#e9c46a'
         ];
 
-        let colorIdx = 0;
-        respData.monthKeys.forEach((mKey, idx) => {
-            const mLabel = respData.labels[idx];
-            const mData = [];
-
-            respData.persons.forEach(p => {
-                const key = `${mKey}|${p}`;
-                mData.push(respData.values[key] || 0);
+        respData.persons.forEach((person, idx) => {
+            const dataValues = respData.monthKeys.map(mKey => {
+                const key = `${mKey}|${person}`;
+                return respData.values[key] || 0;
             });
 
             datasets.push({
-                label: mLabel,
-                data: mData,
-                backgroundColor: monthColors[colorIdx % monthColors.length],
-                borderRadius: 3,
+                label: person,
+                data: dataValues,
+                backgroundColor: palette[idx % palette.length],
+                borderRadius: 4,
                 borderWidth: 0,
                 barPercentage: 0.7,
-                categoryPercentage: 0.85
+                categoryPercentage: 0.8
             });
-            colorIdx++;
         });
 
         config = {
@@ -1018,11 +1330,14 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
                     legend: {
                         display: true,
                         position: 'top',
-                        align: 'end',
+                        align: 'center',
                         labels: {
                             usePointStyle: true,
-                            font: { size: 11, weight: '500' }
-                        }
+                            font: { size: 11, weight: '500' },
+                            padding: 15
+                        },
+                        onHover: (e) => { e.native.target.style.cursor = 'pointer'; },
+                        onLeave: (e) => { e.native.target.style.cursor = 'default'; }
                     },
                     tooltip: {
                         backgroundColor: 'rgba(15, 23, 42, 0.95)',
@@ -1031,44 +1346,62 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
                             title: (items) => `${items[0].label} - ${items[0].dataset.label}`,
                             label: function (context) {
                                 const val = context.parsed.y || 0;
-                                const monthName = context.dataset.label;
+                                const personName = context.dataset.label;
+                                const dataIndex = context.dataIndex;
+                                const monthKey = respData.monthKeys[dataIndex];
 
+                                // Capacidade dinâmica
                                 let capacity = 176;
-                                try {
-                                    const parts = monthName.split('/');
+                                if (monthKey) {
+                                    const parts = monthKey.split('-');
                                     if (parts.length === 2) {
-                                        const mStr = parts[0].toLowerCase();
-                                        const yStr = '20' + parts[1];
-                                        const monthsMap = {
-                                            'jan': 0, 'fev': 1, 'mar': 2, 'abr': 3, 'mai': 4, 'jun': 5,
-                                            'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
-                                        };
-                                        if (monthsMap[mStr] !== undefined) {
-                                            capacity = getMonthlyCapacity(parseInt(yStr), monthsMap[mStr]);
-                                        }
+                                        capacity = getMonthlyCapacity(parseInt(parts[0]), parseInt(parts[1]) - 1);
                                     }
-                                } catch (e) { }
+                                }
 
                                 const percent = capacity > 0 ? Math.round((val / capacity) * 100) : 0;
                                 const diff = Math.round(capacity - val);
 
                                 return [
+                                    `Colaborador: ${personName}`,
                                     `Trabalhado: ${Math.round(val)}h`,
-                                    `Capacidade Real: ${capacity}h`,
-                                    `Ocupação: ${percent}%`,
-                                    diff >= 0 ? `Disponível: ${diff}h` : `Excedente: ${Math.abs(diff)}h`
+                                    `Capacidade: ${capacity}h`,
+                                    `Ocupação: ${percent}%`
                                 ];
                             }
                         }
                     },
                     datalabels: {
-                        display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 15,
+                        display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 10,
                         color: '#fff',
                         anchor: 'center',
                         align: 'center',
                         formatter: (val) => Math.round(val),
                         font: { weight: '600', size: 10 }
                     }
+                },
+                onClick: (e, elements) => {
+                    if (elements.length > 0) {
+                        const datasetIndex = elements[0].datasetIndex;
+                        const personName = chartResponsibleInstance.data.datasets[datasetIndex].label;
+
+                        // Validar se é um nome válido de pessoa (não capacidade)
+                        if (personName && !personName.includes("Capacidade")) {
+                            // Atualizar DOM
+                            const select = document.getElementById('respSelect');
+                            if (select) {
+                                if (select.value === personName) {
+                                    select.value = ""; // Toggle Off
+                                } else {
+                                    select.value = personName;
+                                }
+                                applyFilters();
+                            }
+                        }
+                    }
+                },
+                onHover: (event, chartElement) => {
+                    event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
                 }
             }
         };
@@ -1292,7 +1625,11 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
     chartResponsibleInstance = new Chart(ctxResp, config);
 
     // 5. Atualizar Cronograma Diário
+    // 5. Atualizar Cronograma Diário
     updateDailyChart(data, metric, filterOwner);
+
+    // 6. Atualizar Tabela de Tipos de Horas
+    renderHourTypeTable(data);
 }
 
 // Helper auxiliar para manter o código limpo (funções antigas mantidas mas não usadas no novo fluxo)
@@ -1438,6 +1775,7 @@ function getMetricLabel(metric) {
     if (metric === 'hours') return 'Horas Totais';
     if (metric === 'hoursAdm') return 'Horas ADM';
     if (metric === 'hoursProject') return 'Horas Projeto';
+    if (metric === 'hoursTraining') return 'Horas Treinamento';
     if (metric === 'all') return 'Visão Geral (Todas)';
     return 'Horas';
 }
@@ -1483,7 +1821,8 @@ function processResponsibleData(data, metric, filterOwner = null) {
                 const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora).toLowerCase();
 
                 if (metric === 'hoursAdm' && !tipo.includes('adm')) val = 0;
-                else if (metric === 'hoursProject' && tipo.includes('adm')) val = 0;
+                else if (metric === 'hoursProject' && (tipo.includes('adm') || tipo.includes('treinamento'))) val = 0;
+                else if (metric === 'hoursTraining' && !tipo.includes('treinamento')) val = 0;
 
                 if (val <= 0) return;
 
@@ -1718,7 +2057,8 @@ function processDailyScheduleData(data, metric, filterOwner) {
                 const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora).toLowerCase();
 
                 if (metric === 'hoursAdm' && !tipo.includes('adm')) val = 0;
-                else if (metric === 'hoursProject' && tipo.includes('adm')) val = 0;
+                else if (metric === 'hoursProject' && (tipo.includes('adm') || tipo.includes('treinamento'))) val = 0;
+                else if (metric === 'hoursTraining' && !tipo.includes('treinamento')) val = 0;
 
                 if (val <= 0) return;
 
@@ -1885,7 +2225,10 @@ function renderDailyList(data, metric, filterOwner) {
             const hoursVal = Math.round(task.hours * 100) / 100;
             const typeLabel = task.type === 'adm' ? 'ADM' : 'PROJ';
 
-            card.innerHTML = '<div style="margin-bottom: 8px;"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><span style="font-size: 0.8rem; font-weight:800; color:#0b4f78; background:#eaf4fc; padding:2px 6px; border-radius:4px;">ID ' + task.id + '</span><span style="font-size: 0.75rem; color: #999; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">' + typeLabel + '</span></div><div style="margin-top:6px; font-weight:600; font-size: 0.95rem; color:#333; line-height:1.3;">' + (task.client || task.title) + '</div></div><div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid #f0f0f0; paddingTop:8px; margin-top:4px;"><div style="display:flex; align-items:center; color:#555; font-size:0.85rem;"><i class="fas fa-user" style="margin-right:6px; color:#aaa; font-size:0.8rem;"></i><span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:140px;" title="' + task.person + '">' + task.person + '</span></div><div style="font-weight:bold; color:#2c3e50; font-size:1rem;">' + hoursVal + 'h</div></div>';
+            // Usar PRP ID se disponível, senão ID interno
+            const displayIdLabel = task.prpId ? `PRP - ID ${task.prpId}` : `ID ${task.id}`;
+
+            card.innerHTML = '<div style="margin-bottom: 8px;"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><span style="font-size: 0.8rem; font-weight:800; color:#0b4f78; background:#eaf4fc; padding:2px 6px; border-radius:4px;">' + displayIdLabel + '</span><span style="font-size: 0.75rem; color: #999; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">' + typeLabel + '</span></div><div style="margin-top:6px; font-weight:600; font-size: 0.95rem; color:#333; line-height:1.3;">' + (task.client || task.title) + '</div></div><div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid #f0f0f0; paddingTop:8px; margin-top:4px;"><div style="display:flex; align-items:center; color:#555; font-size:0.85rem;"><i class="fas fa-user" style="margin-right:6px; color:#aaa; font-size:0.8rem;"></i><span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:140px;" title="' + task.person + '">' + task.person + '</span></div><div style="font-weight:bold; color:#2c3e50; font-size:1rem;">' + hoursVal + 'h</div></div>';
             grid.appendChild(card);
         });
 
@@ -1908,7 +2251,8 @@ function processDailyListHelper(data, metric, filterOwner) {
                 const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora).toLowerCase();
 
                 if (metric === 'hoursAdm' && !tipo.includes('adm')) h = 0;
-                else if (metric === 'hoursProject' && tipo.includes('adm')) h = 0;
+                else if (metric === 'hoursProject' && (tipo.includes('adm') || tipo.includes('treinamento'))) h = 0;
+                else if (metric === 'hoursTraining' && !tipo.includes('treinamento')) h = 0;
 
                 if (h <= 0) return;
 
@@ -1923,6 +2267,7 @@ function processDailyListHelper(data, metric, filterOwner) {
                 if (!dates[dateKey]) dates[dateKey] = [];
                 dates[dateKey].push({
                     id: item.id,
+                    prpId: item.prpId, // Passar PRP ID
                     client: item.client || item.title,
                     person: person,
                     hours: h,
