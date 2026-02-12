@@ -103,6 +103,7 @@ function normalizeRow(row) {
 
   let hoursTotal = 0;
   let hoursAdm = 0;
+  let hoursTraining = 0; // Novo
   const participantsMap = new Map();
 
   apontamentos.forEach(a => {
@@ -126,7 +127,9 @@ function normalizeRow(row) {
       a.tipo ||
       ""
     ).toLowerCase();
+
     if (tipo.includes("adm")) hoursAdm += h;
+    else if (tipo.includes("treinamento")) hoursTraining += h;
 
     // Tentar múltiplas variações do campo nome do colaborador
     const name = safeStr(
@@ -168,8 +171,8 @@ function normalizeRow(row) {
     role: [...p.roles].join("/")
   }));
 
-  const responsible = participants.map(p => p.name).join(", ") || safeStr(row["Responsável Demanda"]) || "Sem responsável";
-  const hoursProject = Math.max(0, hoursTotal - hoursAdm);
+  const responsible = participants.map(p => p.name).join(", ") || "Sem responsável";
+  const hoursProject = Math.max(0, hoursTotal - hoursAdm - hoursTraining);
 
   const client = safeStr(row["Nome Cliente"]) || safeStr(row["Contato Cliente"]) || "";
 
@@ -192,6 +195,7 @@ function normalizeRow(row) {
     hoursProject,
     hoursTotal,
     hoursAdm,
+    hoursTraining,
     responsible,
     participants,
     raw: row,
