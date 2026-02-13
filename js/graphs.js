@@ -919,7 +919,7 @@ function renderHourTypeDetails(type, data) {
             if (val > 0.01) {
                 items.push({
                     client: task.client,
-                    title: task.title,
+                    title: task.type,
                     owner: task.owner,
                     hours: val,
                     typeLabel: 'PROJETO',
@@ -935,7 +935,7 @@ function renderHourTypeDetails(type, data) {
             if (val > 0.01) {
                 items.push({
                     client: task.client,
-                    title: task.title,
+                    title: task.type,
                     owner: task.owner,
                     hours: val,
                     typeLabel: 'ADM',
