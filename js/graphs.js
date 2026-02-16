@@ -111,6 +111,7 @@ async function init() {
         document.getElementById('metricSelect').value = 'all';
         initCharts(APP_DATA, 'all');
         setupEventListeners();
+        applyFilters(); // Aplicar filtros iniciais (ex: Quarterly)
     } catch (e) {
         console.error("Erro na inicialização dos gráficos:", e);
     } finally {
@@ -273,148 +274,83 @@ function processTasks(tasks) {
             tasksWithoutApontamentos++;
         }
 
-        // Calcular somas de horas dos apontamentos
-        let hTotal = 0;
-        let hAdm = 0;
-        const participantsMap = new Map();
+        // Calcular somas e métricas usando a função extraída
+        // Garantir que taskId sempre tenha um valor válido
+        const taskId = t.id || t.prpId || raw.ID || raw.id || `task-${index}`;
+        const metrics = calculateTaskMetrics(apontamentos, taskId, index);
 
-        apontamentos.forEach((a, aIndex) => {
-            // Tentar múltiplas variações do campo de horas
-            const h = toNumber(
-                a.Horas ||
-                a.horas ||
-                a.HORAS ||
-                a.Hora ||
-                a.hora ||
-                0
-            );
 
-            // Log detalhado de cada apontamento
-            if (index === 0 && aIndex === 0) {
-                console.log(`📋 [Graphs] Exemplo de apontamento completo:`, a);
-                console.log(`📋 [Graphs] Campos disponíveis:`, Object.keys(a));
-            }
+        const { hoursProject: hProject, hoursAdm: hAdm, assignments } = metrics;
 
-            if (h === 0) {
-                console.warn(`⚠️ [Graphs] Apontamento sem horas na tarefa ${t.id}:`, a);
-            }
+        // Responsável - Somente via Apontamentos (assignments)
+        const owner = assignments.map(a => a.person).join(", ") || "Sem Responsável";
 
-            hTotal += h;
+        // Cliente - Extrair do primeiro apontamento (todos devem ter o mesmo cliente)
+        // O campo na API de apontamentos é "Nome Cliente"
+        let client = "SEM CLIENTE";
+        if (apontamentos.length > 0) {
+            const firstAppt = apontamentos[0];
+            client =
+                firstAppt["Nome Cliente"] ||
+                firstAppt["Nome cliente"] ||
+                firstAppt.nome_cliente ||
+                firstAppt.NomeCliente ||
+                firstAppt.cliente ||
+                firstAppt.Cliente ||
+                t.client ||
+                raw["Cliente"] ||
+                raw.cliente ||
+                "SEM CLIENTE";
+        } else {
+            // Se não houver apontamentos, tentar pegar da tarefa
+            client =
+                t.client ||
+                raw["Cliente"] ||
+                raw.cliente ||
+                raw.Client ||
+                "SEM CLIENTE";
+        }
 
-            // Tentar múltiplas variações do campo tipo
-            const tipo = safeStr(
-                a["Tipo da hora"] ||
-                a.tipo_hora ||
-                a.TipoDaHora ||
-                a.TipoHora ||
-                a.tipo ||
-                ""
-            ).toLowerCase();
+        // Título/Descrição da demanda - tentar múltiplas variações
+        // Se não houver, deixar vazio (não mostrar "SEM TÍTULO")
+        const title =
+            raw["Demanda"] ||
+            raw["Detalhe da demanda (Escopo)"] ||
+            raw["Demanda Interna (PPeC)"] ||
+            raw.demanda ||
+            raw.Demanda ||
+            raw.Title ||
+            raw.title ||
+            t.title ||
+            "";
 
-            if (tipo.includes("adm")) hAdm += h;
-
-            // Tentar múltiplas variações do campo nome do colaborador
-            const name = safeStr(
-                a["Nome colaborador"] ||
-                a["Nome Colaborador"] ||
-                a.nome_colaborador ||
-                a.NomeColaborador ||
-                a.Colaborador ||
-                a.colaborador ||
-                a.nome ||
-                a.Nome ||
-                ""
-            );
-
-            if (name) {
-                if (!participantsMap.has(name)) {
-                    participantsMap.set(name, {
-                        name,
-                        hours: 0,
-                        hoursProject: 0,
-                        hoursAdm: 0,
-                        roles: new Set()
-                    });
-                }
-                const p = participantsMap.get(name);
-                p.hours += h;
-                if (tipo.includes("adm")) p.hoursAdm += h;
-                else p.hoursProject += h;
-
-                // Tentar múltiplas variações do campo responsabilidades
-                const role = safeStr(
-                    a.Responsabilidades ||
-                    a.responsabilidade ||
-                    a.responsabilidades ||
-                    a.Responsabilidade ||
-                    a.papel ||
-                    a.Papel ||
-                    ""
-                );
-                if (role) p.roles.add(role);
-            } else {
-                console.warn(`⚠️ [Graphs] Apontamento sem nome de colaborador na tarefa ${t.id}:`, a);
-            }
-        });
-
-        // Formatar assinaturas para o padrão do gráfico
-        const assignments = [...participantsMap.values()].map(p => ({
-            person: p.name,
-            role: [...p.roles].join("/") || "Colaborador",
-            hoursTotal: p.hours,
-            hoursProject: p.hoursProject,
-            hoursAdm: p.hoursAdm
-        }));
-
-        const hProject = Math.max(0, hTotal - hAdm);
-
-        // Datas - tentar múltiplas variações
+        // Datas - Usar campos corretos da API de demandas conforme log do console
+        // A API retorna "Data Início (Previsão)" e "Data Conclusão (Previsão)"
         const dateStartStr =
             raw["Data Início (Previsão)"] ||
-            raw["data_inicio"] ||
+            raw["Data Inicio (Previsao)"] ||
+            raw["Data Inicio (previsao)"] ||
+            raw["Data Início (previsao)"] ||
+            raw["Data Inicio (Pre Inicio)"] ||
+            raw["Data de Início"] ||
             raw.data_inicio ||
             raw.DataInicio ||
+            t.dateStart ||
             "";
 
         const dateEndStr =
             raw["Data Conclusão (Previsão)"] ||
-            raw["data_conclusao"] ||
-            raw.data_conclusao ||
-            raw.DataConclusao ||
+            raw["Data Conclusao (Previsao)"] ||
+            raw["Data conclusao (previsao)"] ||
+            raw["Data Conclusão (previsao)"] ||
+            raw["Data Conclusao (previsao)"] ||
+            raw["Data de Entrega"] ||
+            raw.data_entrega ||
+            raw.DataEntrega ||
+            raw["Prazo"] ||
+            raw.prazo ||
+            t.dateEnd ||
             "";
-
-        // ID da tarefa - tentar múltiplas variações
-        const taskId =
-            t.id ||
-            raw["ID"] ||
-            raw["id"] ||
-            raw.Id ||
-            raw.ID ||
-            "";
-
-        // Cliente - tentar múltiplas variações
-        const client =
-            raw["Nome Cliente"] ||
-            raw.nome_cliente ||
-            raw.NomeCliente ||
-            raw.cliente ||
-            raw.Cliente ||
-            t.title ||
-            "Sem Cliente";
-
-        // Título/Escopo - tentar múltiplas variações
-        const title =
-            t.title ||
-            raw["Detalhe da demanda (Escopo)"] ||
-            raw.detalhe ||
-            raw.Detalhe ||
-            raw.escopo ||
-            raw.Escopo ||
-            "Demanda";
-
-        // Responsável - tentar múltiplas variações
-        // Responsável - Somente via Apontamentos (assignments)
-        const owner = assignments.map(a => a.person).join(", ") || "Sem Responsável";
 
         // Tipo - tentar múltiplas variações
         const type =
@@ -442,7 +378,8 @@ function processTasks(tasks) {
             status: status,
             hoursProject: hProject,
             hoursAdm: hAdm,
-            get hours() { return (this.hoursProject || 0) + (this.hoursAdm || 0); },
+            hoursTraining: metrics.hoursTraining,
+            get hours() { return (this.hoursProject || 0) + (this.hoursAdm || 0) + (this.hoursTraining || 0); },
             dateStart: parseDate(dateStartStr),
             dateEnd: parseDate(dateEndStr),
             get date() { return this.dateEnd || new Date(); },
@@ -462,12 +399,13 @@ function processTasks(tasks) {
     // Estatísticas adicionais
     const totalHours = processed.reduce((sum, t) => sum + t.hours, 0);
     const totalAdmHours = processed.reduce((sum, t) => sum + t.hoursAdm, 0);
+    const totalTrainingHours = processed.reduce((sum, t) => sum + (t.hoursTraining || 0), 0);
     const totalProjectHours = processed.reduce((sum, t) => sum + t.hoursProject, 0);
     const totalAssignments = processed.reduce((sum, t) => sum + (t.assignments?.length || 0), 0);
     const uniquePeople = new Set();
     processed.forEach(t => t.assignments.forEach(a => uniquePeople.add(a.person)));
 
-    console.log(`📊 [Graphs] Horas totais: ${totalHours.toFixed(2)}h (${totalProjectHours.toFixed(2)}h projeto + ${totalAdmHours.toFixed(2)}h ADM)`);
+    console.log(`📊 [Graphs] Horas totais: ${totalHours.toFixed(2)}h (${totalProjectHours.toFixed(2)}h projeto + ${totalAdmHours.toFixed(2)}h ADM + ${totalTrainingHours.toFixed(2)}h Treinamento)`);
     console.log(`📊 [Graphs] Atribuições: ${totalAssignments} atribuições para ${uniquePeople.size} pessoas únicas`);
     console.log(`📊 [Graphs] Pessoas encontradas:`, [...uniquePeople].sort());
 
@@ -547,17 +485,31 @@ function formatDatePT(date, format = 'medium') {
  * Preenche opções do 'Select' baseado em APP_DATA
  */
 function populateFilters() {
+    console.log(`🔍 [populateFilters] Iniciando com ${APP_DATA.length} tarefas`);
+    console.log(`🔍 [populateFilters] Amostra de tarefa:`, APP_DATA[0]);
+
     const clientSet = new Set();
     const ownerSet = new Set();
 
-    APP_DATA.forEach(item => {
-        if (item.client) clientSet.add(item.client);
+    APP_DATA.forEach((item, index) => {
+        if (item.client) {
+            clientSet.add(item.client);
+        } else if (index < 3) {
+            console.warn(`⚠️ [populateFilters] Tarefa ${index} sem client:`, item);
+        }
 
         // Collect names from assignments
-        item.assignments.forEach(a => {
-            if (a.person) ownerSet.add(a.person);
-        });
+        if (item.assignments && Array.isArray(item.assignments)) {
+            item.assignments.forEach(a => {
+                if (a.person) ownerSet.add(a.person);
+            });
+        } else if (index < 3) {
+            console.warn(`⚠️ [populateFilters] Tarefa ${index} sem assignments:`, item);
+        }
     });
+
+    console.log(`🔍 [populateFilters] Encontrados ${clientSet.size} clientes únicos:`, [...clientSet]);
+    console.log(`🔍 [populateFilters] Encontrados ${ownerSet.size} responsáveis únicos:`, [...ownerSet]);
 
     const clientSelect = document.getElementById('clientSelect');
     // ordenar alfabeticamente
@@ -577,6 +529,8 @@ function populateFilters() {
         opt.textContent = o;
         respSelect.appendChild(opt);
     });
+
+    console.log(`✅ [populateFilters] Filtros populados com sucesso`);
 }
 
 // Filtros interativos (clique no gráfico)
@@ -645,7 +599,7 @@ window.clearTypeFilter = function () {
 };
 
 function resetFilters() {
-    document.getElementById('periodSelect').value = "90";
+    document.getElementById('periodSelect').value = "quarterly";
     document.getElementById('customDateContainer').style.display = 'none'; // Hide on reset
     document.getElementById('startDate').value = "";
     document.getElementById('endDate').value = "";
@@ -676,11 +630,57 @@ function applyFilters() {
     // Render Banner
     renderFilterBanner();
 
-    // Parse custom dates (start of day / end of day)
-    let customStart = startStr ? new Date(startStr + 'T00:00:00') : null;
-    let customEnd = endStr ? new Date(endStr + 'T23:59:59') : null;
+    // 1. Determinar Range de Datas
+    const { start: pStart, end: pEnd } = getPeriodDateRange(period, startStr, endStr);
 
-    let filtered = APP_DATA.filter(item => {
+    console.log(`🔍 [applyFilters] Período: ${period}, Range: ${pStart ? pStart.toISOString().split('T')[0] : 'null'} - ${pEnd ? pEnd.toISOString().split('T')[0] : 'null'}`);
+    console.log(`🔍 [applyFilters] Total de tarefas em APP_DATA: ${APP_DATA.length}`);
+
+    // 2. Recalcular Dados com base no Período (Slicing)
+    // Para cada tarefa, filtramos os apontamentos que caem no período e recalculamos as horas.
+    const recalculatedData = APP_DATA.map(originalTask => {
+        // Se não houver filtro de data, usa os dados originais processados
+        if (!pStart && !pEnd && period === 'all') { // 'all' usually shows everything
+            if (period === '90') { /* 90 is default, might need processing check */ }
+            // Se for 'all' ou sem range, podemos retornar original?
+            // Cuidado: '90' dias é o default.
+        }
+
+        // Filtrar Apontamentos
+        const activeAppts = (originalTask._apontamentos || []).filter(a => {
+            if (!pStart && !pEnd) return true;
+
+            const dVal = a.Data || a.data || "";
+            const d = parseDate(dVal);
+            if (!d) return false;
+
+            // Ajustar datas para calibração fina
+            if (pStart && d < pStart) return false;
+            if (pEnd && d > pEnd) return false;
+            return true;
+        });
+
+        // Recalcular Métricas
+        // Passamos -1 no index para não spammar logs
+        const taskId = originalTask.id || originalTask.prpId || 'unknown';
+        const metrics = calculateTaskMetrics(activeAppts, taskId, -1);
+
+
+        return {
+            ...originalTask,
+            _apontamentos: activeAppts, // Manter apenas os ativos para drill-down
+            ...metrics,
+            ...metrics,
+            get hours() { return (this.hoursProject || 0) + (this.hoursAdm || 0) + (this.hoursTraining || 0); },
+            owner: metrics.assignments.map(a => a.person).join(", ") || "Sem Responsável"
+        };
+    });
+
+    console.log(`🔍 [applyFilters] Após recalcular métricas: ${recalculatedData.length} tarefas`);
+    const tasksWithHours = recalculatedData.filter(t => t.hours > 0);
+    console.log(`🔍 [applyFilters] Tarefas com horas > 0: ${tasksWithHours.length}`);
+
+    let filtered = recalculatedData.filter(item => {
         // Filtro Interativo (Status)
         if (selectedStatus && item.status !== selectedStatus) return false;
         // Filtro Interativo (Tipo)
@@ -697,57 +697,42 @@ function applyFilters() {
             if (!match) return false;
         }
 
-        // Lógica de Data para Período
-        const itemDate = item.date || new Date(); // Fallback para ordenação
+        // Lógica de Data (Período)
+        // A filtragem principal já foi feita via Apontamentos (recalculatedData).
+        // Aqui verificamos apenas se a tarefa "sobrou" com alguma atividade ou se deve ser oculta.
 
-        if (period === '30') {
-            const diffTime = Math.abs(TODAY - itemDate);
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            if (diffDays > 30) return false;
-        } else if (period === '90') {
-            const diffTime = Math.abs(TODAY - itemDate);
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            if (diffDays > 90) return false;
-        } else if (period === 'future_6') {
-            // Futuro: Data >= Hoje (Inicio do Dia) E Data <= Hoje + 6 Meses
-            const futureDate = new Date(TODAY);
-            futureDate.setMonth(futureDate.getMonth() + 6);
+        // Lógica de Data (Período) - Para 'quarterly' ou 'total', a filtragem principal já foi nos apontamentos.
+        // Se a tarefa tem 0 horas no período, ocultar.
 
-            // Aceitar se data do item for maior ou igual a hoje (ignora horas)
-            const itemTime = itemDate.getTime();
-            const todayTime = new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate()).getTime();
+        if (period !== 'total') {
+            const hasHours = item.hours > 0.01;
+            let hasDateInRange = false;
 
-            if (itemTime < todayTime) return false;
-            if (itemDate > futureDate) return false;
-        } else if (period === 'month') {
-            if (itemDate.getMonth() !== TODAY.getMonth() || itemDate.getFullYear() !== TODAY.getFullYear()) return false;
-        } else if (period === 'year') {
-            if (itemDate.getFullYear() !== TODAY.getFullYear()) return false;
-        } else if (period === 'custom') {
-            // IMPORTANTE: Filtrar por datas dos APONTAMENTOS, não pela data da tarefa
-            if (customStart || customEnd) {
-                // Verificar se a tarefa tem pelo menos um apontamento dentro do período
-                const hasAppointmentInRange = (item._apontamentos || []).some(a => {
-                    const appointmentDateStr = a.Data || a.data;
-                    if (!appointmentDateStr) return false;
+            if (pStart && pEnd) {
+                // Verificar se datas da tarefa caem no período
+                const taskStart = item.dateStart;
+                const taskEnd = item.dateEnd;
 
-                    const appointmentDate = parseDate(appointmentDateStr);
-                    if (!appointmentDate) return false;
+                // Lógica de sobreposição ou contensão simples
+                // Consideramos "no range" se o Prazo Final estiver dentro do período (para entregas)
+                // Ou se o Início estiver dentro
 
-                    // Verificar se a data do apontamento está dentro do range
-                    if (customStart && appointmentDate < customStart) return false;
-                    if (customEnd && appointmentDate > customEnd) return false;
+                if (taskEnd && taskEnd >= pStart && taskEnd <= pEnd) hasDateInRange = true;
+                else if (taskStart && taskStart >= pStart && taskStart <= pEnd) hasDateInRange = true;
 
-                    return true; // Apontamento está dentro do período
-                });
+                // Se tarefa "atravessa" o período? (Início antes e Fim depois)
+                else if (taskStart && taskEnd && taskStart < pStart && taskEnd > pEnd) hasDateInRange = true;
 
-                // Se não houver apontamentos no período, filtrar a tarefa
-                if (!hasAppointmentInRange) return false;
+                // Fallback: Se não tiver data, mas é 'quarterly' (futuro), talvez devêssemos mostrar?
+                // Melhor ser restritivo para não poluir.
             }
+
+            if (!hasHours && !hasDateInRange) return false;
         }
 
         // Deadline Logic
         if (deadline !== 'all') {
+            const itemDate = item.date || new Date();
             const isDone = item.status === 'Concluída' || item.status === 'Cancelada';
             const isLate = !isDone && itemDate < TODAY;
 
@@ -761,7 +746,11 @@ function applyFilters() {
         return true;
     });
 
+    console.log(`🔍 [applyFilters] Após todos os filtros: ${filtered.length} tarefas`);
+    console.log(`🔍 [applyFilters] Filtros ativos - Cliente: ${client || 'nenhum'}, Responsável: ${owner || 'nenhum'}, Deadline: ${deadline}, Status: ${selectedStatus || 'nenhum'}, Tipo: ${selectedType || 'nenhum'}`);
+
     updateCharts(filtered, metric, viewMode, owner);
+    renderDeliveryDashboard(filtered); // Atualizar timeline de entregas
 }
 
 function renderHourTypeTable(data) {
@@ -772,13 +761,15 @@ function renderHourTypeTable(data) {
     // 1. Calcular Totais
     let totalProject = 0;
     let totalAdm = 0;
+    let totalTraining = 0;
 
     data.forEach(d => {
         totalProject += (d.hoursProject || 0);
         totalAdm += (d.hoursAdm || 0);
+        totalTraining += (d.hoursTraining || 0);
     });
 
-    const grandTotal = totalProject + totalAdm;
+    const grandTotal = totalProject + totalAdm + totalTraining;
 
     // Helper para criar linha
     const createRow = (typeId, label, val, color) => {
@@ -832,6 +823,7 @@ function renderHourTypeTable(data) {
     // Renderizar Linhas
     tbody.appendChild(createRow('project', 'Horas Projeto', totalProject, '#36A2EB'));
     tbody.appendChild(createRow('adm', 'Horas ADM', totalAdm, '#FF9F40'));
+    tbody.appendChild(createRow('training', 'Horas Treinamento', totalTraining, '#9d4edd'));
 
     // Adicionar Total Geral
     const trTotal = document.createElement('tr');
@@ -896,6 +888,7 @@ function renderHourTypeDetails(type, data) {
     let label = 'Todos os Tipos';
     if (type === 'project') label = 'Horas Projeto';
     else if (type === 'adm') label = 'Horas ADM';
+    else if (type === 'training') label = 'Horas Treinamento';
     else if (type === 'all') label = 'Visão Detalhada por Tipo';
 
     // Se houver filtros globais, adiciona ao título
@@ -941,6 +934,22 @@ function renderHourTypeDetails(type, data) {
                     typeLabel: 'ADM',
                     typeColor: '#FF9F40',
                     bg: '#fff8f3'
+                });
+            }
+        }
+
+        // Check Training Hours
+        if (type === 'all' || type === 'training') {
+            const val = task.hoursTraining || 0;
+            if (val > 0.01) {
+                items.push({
+                    client: task.client,
+                    title: task.type,
+                    owner: task.owner,
+                    hours: val,
+                    typeLabel: 'TREINAMENTO',
+                    typeColor: '#9d4edd',
+                    bg: '#f3e5f5'
                 });
             }
         }
@@ -1183,13 +1192,13 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
 
         labels.forEach((p, i) => {
             const val = aggData.datasets[0].data[i] || 0;
-            const worked = Math.min(val, CAPACITY);
+            // Lógica de Segmentos: Normal + Disponível
+            // Agora 'worked' é o TOTAL trabalhado.
+            const worked = val;
             const remaining = Math.max(0, CAPACITY - val);
-            const overtime = Math.max(0, val - CAPACITY);
 
             dataWorked.push(worked);
             dataRemaining.push(remaining);
-            dataOvertime.push(overtime);
             dataCapacity.push(CAPACITY);
         });
     } else if (viewMode === 'individual_monthly') {
@@ -1272,25 +1281,79 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
 
         // Gerar Datasets (Pessoas)
         // Cores vibrantes e profissionais
+        // Palette "Premium/Clean" - Corporate & Distinct
         const palette = [
-            '#0b4f78', '#36A2EB', '#FF6384', '#4BC0C0', '#FF9F40', '#9966FF',
-            '#FFCD56', '#C9CBCF', '#2a9d8f', '#e76f51', '#264653', '#e9c46a'
+            '#0f172a', // Slate 900 (Deep Dark)
+            '#3b82f6', // Blue 500 (Primary)
+            '#10b981', // Emerald 500 (Success)
+            '#8b5cf6', // Violet 500 (Creative)
+            '#f59e0b', // Amber 500 (Warning)
+            '#ec4899', // Pink 500 (Playful)
+            '#06b6d4', // Cyan 500 (Tech)
+            '#6366f1', // Indigo 500 (Deep)
+            '#84cc16', // Lime 500 (Fresh)
+            '#d946ef', // Fuchsia 500
+            '#f43f5e', // Rose 500
+            '#64748b'  // Slate 500 (Neutral)
         ];
 
         respData.persons.forEach((person, idx) => {
-            const dataValues = respData.monthKeys.map(mKey => {
+            const baseColor = palette[idx % palette.length];
+            const stackId = `stack-${idx}`; // ID único para agrupar as duas barras da mesma pessoa
+
+            // 1. Dados Trabalhados
+            const workedValues = [];
+            // 2. Dados Disponíveis
+            const availableValues = [];
+
+            respData.monthKeys.forEach(mKey => {
                 const key = `${mKey}|${person}`;
-                return respData.values[key] || 0;
+                const val = respData.values[key] || 0;
+
+                // Capacidade do mês
+                let capacity = 176;
+                const parts = mKey.split('-');
+                if (parts.length === 2) {
+                    capacity = getMonthlyCapacity(parseInt(parts[0]), parseInt(parts[1]) - 1);
+                }
+
+                // Lógica igual ao consolidado: Normal + Disponível + Overtime?
+                // Aqui o pedido foi "Barra Disponível em cima de Responsável".
+                // Se tiver Extra, a barra cresce além da capacidade? Provavelmente sim.
+                // Mas se usar 3 segmentos por pessoa fica complexo visualmente.
+                // Vamos simplificar:
+                // Barra de baixo: Trabalhado (Tudo)
+                // Barra de cima: Disponível (Capacidade - Trabalhado, se positivo).
+
+                const avail = Math.max(0, capacity - val);
+
+                workedValues.push(val);
+                availableValues.push(avail);
             });
 
+            // Dataset Trabalhado
             datasets.push({
                 label: person,
-                data: dataValues,
-                backgroundColor: palette[idx % palette.length],
+                data: workedValues,
+                backgroundColor: baseColor,
                 borderRadius: 4,
-                borderWidth: 0,
-                barPercentage: 0.7,
-                categoryPercentage: 0.8
+                stack: stackId,
+                order: 1 // Worked at BOTTOM
+            });
+
+            // Dataset Disponível (Mesmo stack)
+            datasets.push({
+                label: `${person} (Disp.)`,
+                data: availableValues,
+                // Clean look: very light background, no border or very subtle
+                backgroundColor: '#f1f5f9', // Slate-100 (Neutral)
+                borderColor: '#cbd5e1', // Slate-300
+                borderWidth: 1,
+                // borderDash removed for cleaner look
+                borderRadius: { topLeft: 4, topRight: 4 }, // Rounded top only
+                stack: stackId,
+                order: 2, // Available on TOP
+                hidden: false
             });
         });
 
@@ -1301,6 +1364,11 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                // Adjust bar thickness for total view?
+                // catPercentage 0.8 is default. Let's make it tighter if many months?
+                // actually, Chart.js auto-sizes. 
+                // We can set maxBarThickness to avoid super wide bars in Monthly view
+                // and minBarLength or similar for transparency.
                 interaction: {
                     mode: 'nearest',
                     axis: 'x',
@@ -1309,6 +1377,7 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
                 scales: {
                     y: {
                         beginAtZero: true,
+                        stacked: true, // Habilitar empilhamento para grupos
                         grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false },
                         ticks: {
                             font: { size: 11, family: 'Inter, system-ui' },
@@ -1318,6 +1387,7 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
                         border: { display: false }
                     },
                     x: {
+                        stacked: true, // Habilitar empilhamento para grupos
                         grid: { display: false },
                         ticks: {
                             font: { size: 12, weight: '600', family: 'Inter, system-ui' },
@@ -1334,16 +1404,37 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
                         labels: {
                             usePointStyle: true,
                             font: { size: 11, weight: '500' },
-                            padding: 15
+                            padding: 15,
+                            // FILTER: Hide "(Disp.)" from legend
+                            filter: function (item, chart) {
+                                return !item.text.includes('(Disp.)');
+                            }
                         },
                         onHover: (e) => { e.native.target.style.cursor = 'pointer'; },
-                        onLeave: (e) => { e.native.target.style.cursor = 'default'; }
+                        onLeave: (e) => { e.native.target.style.cursor = 'default'; },
+                        // CUSTOM ONCLICK: Toggle both Worked and Available datasets
+                        onClick: function (e, legendItem, legend) {
+                            const index = legendItem.datasetIndex;
+                            const ci = legend.chart;
+                            const clickedLabel = legendItem.text; // "Person Name"
+
+                            // Find all datasets related to this person
+                            // Our logic: "Person Name" and "Person Name (Disp.)"
+                            ci.data.datasets.forEach((ds, i) => {
+                                if (ds.label === clickedLabel || ds.label === `${clickedLabel} (Disp.)`) {
+                                    const meta = ci.getDatasetMeta(i);
+                                    meta.hidden = meta.hidden === null ? !ci.data.datasets[i].hidden : null;
+                                }
+                            });
+                            ci.update();
+                        }
                     },
                     tooltip: {
                         backgroundColor: 'rgba(15, 23, 42, 0.95)',
                         padding: 12,
+                        textTransform: 'capitalize',
                         callbacks: {
-                            title: (items) => `${items[0].label} - ${items[0].dataset.label}`,
+                            title: (items) => `${items[0].label} - ${items[0].dataset.label.replace(' (Disp.)', '')}`,
                             label: function (context) {
                                 const val = context.parsed.y || 0;
                                 const personName = context.dataset.label;
@@ -1360,11 +1451,18 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
                                 }
 
                                 const percent = capacity > 0 ? Math.round((val / capacity) * 100) : 0;
-                                const diff = Math.round(capacity - val);
+
+                                let labelPrefix = 'Trabalhado';
+                                let displayName = personName;
+
+                                if (personName.includes('(Disp.)')) {
+                                    labelPrefix = 'Disponível';
+                                    displayName = personName.replace(' (Disp.)', '');
+                                }
 
                                 return [
-                                    `Colaborador: ${personName}`,
-                                    `Trabalhado: ${Math.round(val)}h`,
+                                    `Colaborador: ${displayName}`,
+                                    `${labelPrefix}: ${Math.round(val)}h`,
                                     `Capacidade: ${capacity}h`,
                                     `Ocupação: ${percent}%`
                                 ];
@@ -1372,18 +1470,55 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
                         }
                     },
                     datalabels: {
-                        display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 10,
-                        color: '#fff',
+                        display: (ctx) => {
+                            // HEURISTIC: Aggressively hide labels in cluttered views
+                            // If we have more than 6 months (Total View likely), hide labels unless hovered or very large?
+                            // Actually, just checking data length is easier.
+                            // Chart data labels are per dataset.
+                            const datasetCount = ctx.chart.data.datasets.length;
+                            const labelsCount = ctx.chart.data.labels.length;
+
+                            // If showing many months (> 6) AND many people, it's cluttered.
+                            // In individual_monthly view, labelsCount = months.
+                            const isCluttered = labelsCount > 6;
+
+                            // AGGRESSIVE CLEANUP: If cluttered, hide ALL labels.
+                            // It is impossible to read text on thin bars. Tooltip is sufficient.
+                            if (isCluttered) {
+                                return false;
+                            }
+
+                            const v = ctx.dataset.data[ctx.dataIndex];
+
+                            // Normal view (Quarterly/Monthly)
+                            return v > 10;
+                        },
+                        rotation: -90, // Vertical text to prevent horizontal overlap
+                        color: (ctx) => {
+                            if (ctx.dataset.label.includes('(Disp.)')) {
+                                return '#334155'; // Dark text for Available
+                            }
+                            return '#fff'; // White text for Worked
+                        },
                         anchor: 'center',
                         align: 'center',
                         formatter: (val) => Math.round(val),
-                        font: { weight: '600', size: 10 }
+                        // Thicker font ('800' / ExtraBold) for better visibility
+                        font: (context) => {
+                            const labelsCount = context.chart.data.labels.length;
+                            const isCluttered = labelsCount > 6;
+                            return {
+                                weight: '800',
+                                size: isCluttered ? 9 : 11, // Smaller font if cluttered 
+                                family: 'Inter, sans-serif'
+                            };
+                        }
                     }
                 },
                 onClick: (e, elements) => {
                     if (elements.length > 0) {
                         const datasetIndex = elements[0].datasetIndex;
-                        const personName = chartResponsibleInstance.data.datasets[datasetIndex].label;
+                        const personName = chartResponsibleInstance.data.datasets[datasetIndex].label.replace(' (Disp.)', '');
 
                         // Validar se é um nome válido de pessoa (não capacidade)
                         if (personName && !personName.includes("Capacidade")) {
@@ -1418,7 +1553,7 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
             let monthTotal = 0;
             // Somar todas as pessoas neste mês
             respData.persons.forEach(p => {
-                const key = `${m}|${p}`; // CORRIGIDO: Removido espaços extras na chave
+                const key = `${m}|${p}`;
                 monthTotal += (respData.values[key] || 0);
             });
 
@@ -1434,15 +1569,91 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
             const peopleCount = respData.persons.length;
             const monthCapacity = singleCapacity * peopleCount;
 
-            const worked = Math.min(monthTotal, monthCapacity);
+            // Lógica de Segmentos: Normal + Disponível
+            // REMOVIDO: Horas Excedentes (pedido do usuário)
+            // Agora 'worked' é o TOTAL trabalhado, mesmo que passe da capacidade.
+            const worked = monthTotal;
             const remaining = Math.max(0, monthCapacity - monthTotal);
-            const overtime = Math.max(0, monthTotal - monthCapacity);
+            // const overtime = Math.max(0, monthTotal - monthCapacity); // Removed
 
             dataWorked.push(worked);
             dataRemaining.push(remaining);
-            dataOvertime.push(overtime);
+            // dataOvertime.push(overtime); // Removed
             dataCapacity.push(monthCapacity);
         });
+
+        if (!overrideConfig) {
+            config = {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Horas Trabalhadas',
+                            data: dataWorked,
+                            backgroundColor: '#4ECDC4', // Turquesa
+                            borderRadius: 4,
+                            stack: 'Stack 0',
+                            order: 1 // Worked at BOTTOM
+                        },
+                        {
+                            label: 'Horas Disponíveis',
+                            data: dataRemaining, // Barra "vazia"
+                            backgroundColor: '#E2E8F0', // Slate light
+                            borderRadius: { topLeft: 4, topRight: 4 },
+                            borderWidth: 1,
+                            borderColor: '#CBD5E1',
+                            borderSkipped: 'bottom',
+                            stack: 'Stack 0',
+                            order: 2 // Available in MIDDLE
+                        },
+
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            stacked: true,
+                            grid: { color: 'rgba(0,0,0,0.05)' },
+                            ticks: { callback: (v) => v + 'h' }
+                        },
+                        x: {
+                            stacked: true,
+                            grid: { display: false }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function (context) {
+                                    const label = context.dataset.label;
+                                    const val = context.parsed.y;
+                                    if (val < 0.1) return null;
+                                    return `${label}: ${Math.round(val)}h`;
+                                },
+                                afterBody: function (tooltipItems) {
+                                    const idx = tooltipItems[0].dataIndex;
+                                    const capacity = dataCapacity[idx];
+                                    return `Capacidade Total: ${Math.round(capacity)}h`;
+                                }
+                            }
+                        },
+                        datalabels: {
+                            display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 10,
+                            color: (ctx) => ctx.datasetIndex === 1 ? '#64748b' : '#fff', // Cor escura para Disponível
+                            font: { weight: 'bold', size: 11 },
+                            formatter: (v) => Math.round(v)
+                        }
+                    }
+                }
+            };
+            overrideConfig = true;
+        }
     }
 
 
@@ -1943,6 +2154,13 @@ function stringToColor(str) {
     return '#' + "00000".substring(0, 6 - c.length) + c;
 }
 
+function hexToRgba(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 
 // ============================================
 // CRONOGRAMA DIÁRIO (NOVO GRÁFICO)
@@ -2223,7 +2441,9 @@ function renderDailyList(data, metric, filterOwner) {
             card.style.cssText = 'background: white; border: 1px solid #e1e4e8; border-left: 4px solid ' + stripColor + '; border-radius: 6px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 5px rgba(0,0,0,0.03);';
 
             const hoursVal = Math.round(task.hours * 100) / 100;
-            const typeLabel = task.type === 'adm' ? 'ADM' : 'PROJ';
+            let typeLabel = 'PROJ';
+            if (task.type === 'adm') typeLabel = 'ADM';
+            else if (task.type === 'training') typeLabel = 'TREINA';
 
             // Usar PRP ID se disponível, senão ID interno
             const displayIdLabel = task.prpId ? `PRP - ID ${task.prpId}` : `ID ${task.id}`;
@@ -2265,17 +2485,303 @@ function processDailyListHelper(data, metric, filterOwner) {
                 const dateKey = `${yKey}-${mKey}-${dKey}`;
 
                 if (!dates[dateKey]) dates[dateKey] = [];
+                let typeLabel = 'project';
+                if (tipo.includes('adm')) typeLabel = 'adm';
+                else if (tipo.includes('treinamento')) typeLabel = 'training';
+
                 dates[dateKey].push({
                     id: item.id,
                     prpId: item.prpId, // Passar PRP ID
                     client: item.client || item.title,
                     person: person,
                     hours: h,
-                    type: tipo.includes('adm') ? 'adm' : 'project'
+                    type: typeLabel
                 });
             });
         }
     });
 
     return dates;
+}
+
+// =========================================================
+// HELPERS DE RECALCULO E DATAS
+// =========================================================
+
+function calculateTaskMetrics(apontamentos, taskId, index) {
+    let hTotal = 0;
+    let hAdm = 0;
+    let hTraining = 0; // Novo acumulador
+    const participantsMap = new Map();
+
+    apontamentos.forEach((a, aIndex) => {
+        // Tentar múltiplas variações do campo de horas
+        const h = toNumber(
+            a.Horas ||
+            a.horas ||
+            a.HORAS ||
+            a.Hora ||
+            a.hora ||
+            0
+        );
+
+        // Log detalhado de cada apontamento (apenas se index >= 0)
+        if (index === 0 && aIndex === 0) {
+            console.log(`📋 [Graphs] Exemplo de apontamento completo:`, a);
+            console.log(`📋 [Graphs] Campos disponíveis:`, Object.keys(a));
+        }
+
+        if (h === 0 && index >= 0) {
+            console.warn(`⚠️ [Graphs] Apontamento sem horas na tarefa ${taskId}:`, a);
+        }
+
+        hTotal += h;
+
+        // Tentar múltiplas variações do campo tipo
+        const tipo = safeStr(
+            a["Tipo da hora"] ||
+            a.tipo_hora ||
+            a.TipoDaHora ||
+            a.TipoHora ||
+            a.tipo ||
+            ""
+        ).toLowerCase();
+
+        if (tipo.includes("adm")) hAdm += h;
+        else if (tipo.includes("treinamento")) hTraining += h; // Nova lógica
+
+        // Tentar múltiplas variações do campo nome do colaborador
+        const name = safeStr(
+            a["Nome colaborador"] ||
+            a["Nome Colaborador"] ||
+            a.nome_colaborador ||
+            a.NomeColaborador ||
+            a.Colaborador ||
+            a.colaborador ||
+            a.nome ||
+            a.Nome ||
+            ""
+        );
+
+        if (name) {
+            if (!participantsMap.has(name)) {
+                participantsMap.set(name, {
+                    name,
+                    hours: 0,
+                    hoursProject: 0,
+                    hoursAdm: 0,
+                    hoursTraining: 0,
+                    roles: new Set()
+                });
+            }
+            const p = participantsMap.get(name);
+            p.hours += h;
+            if (tipo.includes("adm")) p.hoursAdm += h;
+            else if (tipo.includes("treinamento")) p.hoursTraining += h;
+            else p.hoursProject += h;
+
+            // Tentar múltiplas variações do campo responsabilidades
+            const role = safeStr(
+                a.Responsabilidades ||
+                a.responsabilidade ||
+                a.responsabilidades ||
+                a.Responsabilidade ||
+                a.papel ||
+                a.Papel ||
+                ""
+            );
+            if (role) p.roles.add(role);
+        } else if (index >= 0) {
+            console.warn(`⚠️ [Graphs] Apontamento sem nome de colaborador na tarefa ${taskId}:`, a);
+        }
+    });
+
+    // Formatar assinaturas para o padrão do gráfico
+    const assignments = [...participantsMap.values()].map(p => ({
+        person: p.name,
+        role: [...p.roles].join("/") || "Colaborador",
+        hoursTotal: p.hours,
+        hoursProject: p.hoursProject,
+        hoursAdm: p.hoursAdm,
+        hoursTraining: p.hoursTraining
+    }));
+
+    const hProject = Math.max(0, hTotal - hAdm - hTraining); // Subtrai ADM e Treinamento
+
+    return {
+        hoursProject: hProject,
+        hoursAdm: hAdm,
+        hoursTraining: hTraining,
+        assignments: assignments
+    };
+}
+
+function getPeriodDateRange(period, customStartStr, customEndStr) {
+    let start = null;
+    let end = null;
+
+    // TODAY global já existe no arquivo
+    const y = TODAY.getFullYear();
+    const m = TODAY.getMonth(); // 0-indexed
+    const d = TODAY.getDate();
+
+    if (period === 'quarterly') {
+        // Visão Trimestral: Mês Atual + 3 meses para frente (Total ~4 meses)
+        start = new Date(y, m, 1, 0, 0, 0); // Inicio deste mês
+        end = new Date(y, m + 4, 0, 23, 59, 59); // Fim do (mês + 3)
+    }
+    else if (period === 'total') {
+        // Visão Total: Sem limites (ou limites extremos)
+        start = null;
+        end = null;
+    }
+    else if (period === 'month') {
+        // Visão Mensal: Este Mês
+        start = new Date(y, m, 1, 0, 0, 0);
+        end = new Date(y, m + 1, 0, 23, 59, 59);
+    }
+    else if (period === 'custom') {
+        if (customStartStr) start = new Date(customStartStr + 'T00:00:00');
+        if (customEndStr) end = new Date(customEndStr + 'T23:59:59');
+    }
+    // 'future_6' e 'all' retornam null para indicar "sem filtro de apontamentos"
+    // (future_6 filtra por data da tarefa, não dos apontamentos, pois são futuros)
+
+    return { start, end };
+}
+
+// =========================================================
+// DELIVERY DASHBOARD (Timeline de Entregas & Prazos)
+// =========================================================
+
+function renderDeliveryDashboard(data) {
+    const container = document.getElementById('deliveryDashboard');
+    if (!container) return;
+
+    // Organizar tarefas por categoria de prazo
+    const overdue = [];
+    const today = [];
+    const upcoming = [];
+
+    const todayStart = new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate());
+    const todayEnd = new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate(), 23, 59, 59);
+
+    data.forEach(task => {
+        const deadline = task.date || task.dateEnd;
+        if (!deadline) return; // Pular tarefas sem prazo
+
+        const isDone = task.status === 'Concluída' || task.status === 'Cancelada';
+        if (isDone) return; // Não mostrar tarefas concluídas/canceladas
+
+        const deadlineTime = deadline.getTime();
+        const todayStartTime = todayStart.getTime();
+        const todayEndTime = todayEnd.getTime();
+
+        if (deadlineTime < todayStartTime) {
+            overdue.push(task);
+        } else if (deadlineTime >= todayStartTime && deadlineTime <= todayEndTime) {
+            today.push(task);
+        } else {
+            upcoming.push(task);
+        }
+    });
+
+    // Ordenar por data
+    const sortByDate = (a, b) => {
+        const dateA = a.date || a.dateEnd || new Date(0);
+        const dateB = b.date || b.dateEnd || new Date(0);
+        return dateA - dateB;
+    };
+
+    overdue.sort(sortByDate);
+    today.sort(sortByDate);
+    upcoming.sort(sortByDate);
+
+    // Renderizar HTML
+    let html = '';
+
+    // Função helper para criar card de tarefa
+    const createTaskCard = (task, category) => {
+        const deadline = task.date || task.dateEnd;
+        const startDate = task.dateStart;
+        const deadlineStr = deadline ? formatDatePT(deadline, 'medium') : '—';
+        const startDateStr = startDate ? formatDatePT(startDate, 'medium') : '—';
+
+        // O título deve ser o nome do cliente (vem da API de apontamentos)
+        const clientName = task.client || 'Cliente não informado';
+
+        // A demanda/descrição fica como subtítulo
+        const demandTitle = task.title || '';
+
+        const owners = task.owner || 'Sem responsável';
+        const prpId = task.prpId || task.id || '';
+
+        return `
+            <div class="delivery-item ${category}">
+                <div class="status-line"></div>
+                <div class="delivery-content">
+                    <div class="delivery-title">${clientName}</div>
+                    ${demandTitle ? `<div class="delivery-meta" style="font-size: 13px; color: #64748b; margin-top: 2px;">${demandTitle}</div>` : ''}
+                    <div class="delivery-responsibles" style="font-size: 12px; color: #64748b; margin-top: 4px;">
+                        Resp: ${owners}
+                    </div>
+                </div>
+                <div class="delivery-info">
+                    <div class="delivery-date-group">
+                        <span class="date-label">INÍCIO</span>
+                        <span class="date-value">${startDateStr}</span>
+                    </div>
+                    <div class="delivery-date-group">
+                        <span class="date-label">PRAZO</span>
+                        <span class="date-value ${category === 'overdue' ? 'alert' : ''}">${deadlineStr}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    };
+
+    // Seção: Vencidos
+    if (overdue.length > 0) {
+        html += `
+            <div class="dashboard-section">
+                <div class="section-header overdue">
+                    <span>⚠️ Vencidos (${overdue.length})</span>
+                </div>
+                ${overdue.map(task => createTaskCard(task, 'overdue')).join('')}
+            </div>
+        `;
+    }
+
+    // Seção: Hoje
+    if (today.length > 0) {
+        html += `
+            <div class="dashboard-section">
+                <div class="section-header today">
+                    <span>📅 Hoje (${today.length})</span>
+                </div>
+                ${today.map(task => createTaskCard(task, 'today')).join('')}
+            </div>
+        `;
+    }
+
+    // Seção: Próximos (limitar a 20 para não sobrecarregar)
+    if (upcoming.length > 0) {
+        const upcomingLimited = upcoming.slice(0, 20);
+        html += `
+            <div class="dashboard-section">
+                <div class="section-header upcoming">
+                    <span>📆 Próximos (${upcoming.length})</span>
+                </div>
+                ${upcomingLimited.map(task => createTaskCard(task, 'upcoming')).join('')}
+                ${upcoming.length > 20 ? `<div style="text-align: center; padding: 10px; color: #94a3b8; font-size: 12px;">... e mais ${upcoming.length - 20} tarefas</div>` : ''}
+            </div>
+        `;
+    }
+
+    // Se não houver nenhuma tarefa
+    if (overdue.length === 0 && today.length === 0 && upcoming.length === 0) {
+        html = '<div class="empty-state">Nenhuma tarefa com prazo definido encontrada</div>';
+    }
+
+    container.innerHTML = html;
 }
