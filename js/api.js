@@ -3,7 +3,7 @@
    Centraliza todas as chamadas de fetch para o Backend Python/Flask
    ========================= */
 
-const API_BASE_URL = "http://127.0.0.1:5000";
+const API_BASE_URL = "https://ppc-gestao.brazilsouth.cloudapp.azure.com";
 const LISTS_BASE_URL = `${API_BASE_URL}/lists`;
 
 const api = {
@@ -47,17 +47,17 @@ const api = {
        CHECKLIST
        ========================= */
 
-/* =========================
-   CHECKLIST (Versão Corrigida)
-   ========================= */
+    /* =========================
+       CHECKLIST (Versão Corrigida)
+       ========================= */
 
     async getChecklist(demandaId) {
-        const cleanId = String(demandaId).replace(/\D/g, ''); 
-        
+        const cleanId = String(demandaId).replace(/\D/g, '');
+
         if (!cleanId) throw new Error("ID da demanda inválido");
 
         const resp = await fetch(`${LISTS_BASE_URL}/checklist/${cleanId}`);
-        
+
         if (!resp.ok) {
             console.error(`Erro ao buscar checklist ${cleanId}: Status ${resp.status}`);
             throw new Error("Falha ao carregar checklist");
@@ -67,7 +67,7 @@ const api = {
 
     async createChecklistItem(demandaId, texto) {
         const cleanId = String(demandaId).replace(/\D/g, '');
-        
+
         const resp = await fetch(`${LISTS_BASE_URL}/checklist/`, { // Verifique se precisa da / final
             method: "POST",
             headers: { "Content-Type": "application/json" },
