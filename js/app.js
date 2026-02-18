@@ -203,6 +203,75 @@ function normalizeRow(row) {
   };
 }
 
+/**
+ * Retorna uma "visão filtrada" da task, recalculando horas
+ * apenas para os apontamentos do responsável selecionado.
+ * Se não houver filtro de pessoa, retorna a task original.
+ */
+function getFilteredView(task, personFilter) {
+  if (!personFilter) return task;
+
+  const p = personFilter.toLowerCase();
+
+  // Filtrar apenas apontamentos do responsável selecionado
+  const allApontamentos = task._apontamentos || task.raw?._apontamentos || [];
+  const filteredApontamentos = allApontamentos.filter(a => {
+    const name = safeStr(
+      a["Nome colaborador"] ||
+      a["Nome Colaborador"] ||
+      a.nome_colaborador ||
+      a.NomeColaborador ||
+      a.Colaborador ||
+      a.colaborador ||
+      a.nome ||
+      a.Nome ||
+      ""
+    ).toLowerCase();
+    return name.includes(p) || p.includes(name);
+  });
+
+  // Recalcular horas apenas para esse responsável
+  let hoursTotal = 0, hoursAdm = 0, hoursTraining = 0;
+  const participantsMap = new Map();
+
+  filteredApontamentos.forEach(a => {
+    const h = toNumber(a.Horas || a.horas || a.HORAS || a.Hora || a.hora || 0);
+    hoursTotal += h;
+    const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora || "").toLowerCase();
+    if (tipo.includes("adm")) hoursAdm += h;
+    else if (tipo.includes("treinamento")) hoursTraining += h;
+
+    const name = safeStr(
+      a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador ||
+      a.NomeColaborador || a.Colaborador || a.colaborador || a.nome || a.Nome || ""
+    );
+    if (name) {
+      if (!participantsMap.has(name)) participantsMap.set(name, { name, hours: 0, roles: new Set() });
+      const pp = participantsMap.get(name);
+      pp.hours += h;
+      const role = safeStr(a.Responsabilidades || a.responsabilidade || a.responsabilidades || a.Responsabilidade || "");
+      if (role) pp.roles.add(role);
+    }
+  });
+
+  const participants = [...participantsMap.values()].map(pp => ({
+    name: pp.name,
+    hours: pp.hours,
+    role: [...pp.roles].join("/")
+  }));
+
+  return {
+    ...task,
+    hoursTotal,
+    hoursAdm,
+    hoursTraining,
+    hoursProject: Math.max(0, hoursTotal - hoursAdm - hoursTraining),
+    participants,
+    responsible: participants.map(pp => pp.name).join(", ") || task.responsible,
+    _filteredApontamentos: filteredApontamentos,
+  };
+}
+
 // Funções de parseCSV REMOVIDAS (não mais utilizadas no front)
 
 /* -------- Estado -------- */
@@ -282,28 +351,46 @@ function handleDrop(e, targetStatusKey) {
 /* -------- UI -------- */
 function render() {
   // Calcular filtrados
-  const filtered = tasks.filter(t => {
-    if (filters.person) {
-      const p = filters.person.toLowerCase();
-      if (!t.responsible.toLowerCase().includes(p)) return false;
-    }
-    if (filters.demandType) {
-      if (t.demandType !== filters.demandType) return false;
-    }
-    if (filters.query) {
-      const q = filters.query.toLowerCase();
-      const blob = [
-        t.title, t.subtitle, t.responsible,
-        t.raw?.["Detalhe da demanda (Escopo)"],
-        t.raw?.["Sistema em Escopo"],
-        t.raw?.["Nome Cliente"],
-        t.raw?.["ID - PRP (RentSoft)"],
-        t.raw?.["IDPlanner"]
-      ].map(safeStr).join(" ").toLowerCase();
-      if (!blob.includes(q)) return false;
-    }
-    return true;
-  });
+  const filtered = tasks
+    .filter(t => {
+      if (filters.person) {
+        // Verificar se o responsável está nos apontamentos da demanda
+        const p = filters.person.toLowerCase();
+        const allApontamentos = t._apontamentos || t.raw?._apontamentos || [];
+        if (allApontamentos.length > 0) {
+          // Filtrar por apontamentos quando disponíveis (mais preciso)
+          const hasMatch = allApontamentos.some(a => {
+            const name = safeStr(
+              a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador ||
+              a.NomeColaborador || a.Colaborador || a.colaborador || a.nome || a.Nome || ""
+            ).toLowerCase();
+            return name.includes(p) || p.includes(name);
+          });
+          if (!hasMatch) return false;
+        } else {
+          // Fallback: verificar pelo campo responsible
+          if (!t.responsible.toLowerCase().includes(p) && !p.includes(t.responsible.toLowerCase())) return false;
+        }
+      }
+      if (filters.demandType) {
+        if (t.demandType !== filters.demandType) return false;
+      }
+      if (filters.query) {
+        const q = filters.query.toLowerCase();
+        const blob = [
+          t.title, t.subtitle, t.responsible,
+          t.raw?.["Detalhe da demanda (Escopo)"],
+          t.raw?.["Sistema em Escopo"],
+          t.raw?.["Nome Cliente"],
+          t.raw?.["ID - PRP (RentSoft)"],
+          t.raw?.["IDPlanner"]
+        ].map(safeStr).join(" ").toLowerCase();
+        if (!blob.includes(q)) return false;
+      }
+      return true;
+    })
+    // Recalcular horas apenas para o responsável filtrado
+    .map(t => getFilteredView(t, filters.person));
 
   // Atualizar badges
   $("#badgeTotal").textContent = `${filtered.length} demandas`;
@@ -315,8 +402,19 @@ function render() {
     // aplicar todos os filtros exceto demandType
     if (filters.person) {
       const p = filters.person.toLowerCase();
-      const hay = (t.responsible || "").toLowerCase();
-      if (!hay.includes(p)) return false;
+      const allApontamentos = t._apontamentos || t.raw?._apontamentos || [];
+      if (allApontamentos.length > 0) {
+        const hasMatch = allApontamentos.some(a => {
+          const name = safeStr(
+            a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador ||
+            a.NomeColaborador || a.Colaborador || a.colaborador || a.nome || a.Nome || ""
+          ).toLowerCase();
+          return name.includes(p) || p.includes(name);
+        });
+        if (!hasMatch) return false;
+      } else {
+        if (!(t.responsible || "").toLowerCase().includes(p) && !p.includes((t.responsible || "").toLowerCase())) return false;
+      }
     }
     if (filters.query) {
       const q = filters.query.toLowerCase();
@@ -458,7 +556,8 @@ async function openModal(task) {
     ["Aprovação", safeStr(task.raw?.["Aprovação Demanda"]) || "—"],
   ];
 
-  const apontamentos = task.raw?._apontamentos || [];
+  // Se há filtro de pessoa ativo, usar apenas os apontamentos desse responsável
+  const apontamentos = task._filteredApontamentos || task.raw?._apontamentos || [];
 
   const grid = $("#modalGrid");
   grid.innerHTML = "";
@@ -734,6 +833,7 @@ function resetFilters() {
   filters = { person: "", demandType: "", query: "" };
   saveFilters();
   syncControls();
+  hideBanner();
   render();
 }
 

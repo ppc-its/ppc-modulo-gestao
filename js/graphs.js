@@ -360,6 +360,16 @@ function processTasks(tasks) {
             raw.Tipo ||
             "OUTROS";
 
+        // Serviço - extrair das colunas específicas
+        const serviceType =
+            raw["Intelidados"] ||
+            raw["Cybersecurity"] ||
+            raw["Auditoria TI"] ||
+            raw["Consultoria de TI"] ||
+            raw["Demanda Interna (PPeC)"] ||
+            raw["Outros"] ||
+            "—";
+
         // Status - tentar múltiplas variações
         const status =
             t.status ||
@@ -385,7 +395,8 @@ function processTasks(tasks) {
             get date() { return this.dateEnd || new Date(); },
             raw: raw,
             _apontamentos: apontamentos, // Preservar para uso posterior
-            prpId: raw["ID - PRP (RentSoft)"] || "" // Extrair PRP ID
+            prpId: raw["ID - PRP (RentSoft)"] || "", // Extrair PRP ID
+            serviceType: serviceType
         };
 
         return result;
@@ -600,7 +611,9 @@ window.clearTypeFilter = function () {
 
 function resetFilters() {
     document.getElementById('periodSelect').value = "quarterly";
-    document.getElementById('customDateContainer').style.display = 'none'; // Hide on reset
+    const customDateContainer = document.getElementById('customDateContainer');
+    if (customDateContainer) customDateContainer.style.display = 'none';
+
     document.getElementById('startDate').value = "";
     document.getElementById('endDate').value = "";
     document.getElementById('clientSelect').value = "";
@@ -611,6 +624,16 @@ function resetFilters() {
 
     selectedStatus = null;
     selectedType = null;
+    selectedHourType = null;
+
+    // Resetar visibilidade das tabelas de detalhes
+    const detailTable = document.getElementById('hourTypeDetailTable');
+    const detailTitle = document.getElementById('hourTypeDetailTitle');
+    if (detailTable) detailTable.style.display = 'none';
+    if (detailTitle) {
+        detailTitle.style.display = 'block';
+        detailTitle.textContent = 'Selecione um tipo ao lado para ver detalhes';
+    }
 
     applyFilters();
 }
@@ -636,42 +659,53 @@ function applyFilters() {
     console.log(`🔍 [applyFilters] Período: ${period}, Range: ${pStart ? pStart.toISOString().split('T')[0] : 'null'} - ${pEnd ? pEnd.toISOString().split('T')[0] : 'null'}`);
     console.log(`🔍 [applyFilters] Total de tarefas em APP_DATA: ${APP_DATA.length}`);
 
-    // 2. Recalcular Dados com base no Período (Slicing)
-    // Para cada tarefa, filtramos os apontamentos que caem no período e recalculamos as horas.
+    // 2. Recalcular Dados com base no Período (Slicing) e Responsável
+    // Para cada tarefa, filtramos os apontamentos que caem no período E do responsável selecionado,
+    // garantindo que as métricas reflitam exatamente o que foi pedido.
     const recalculatedData = APP_DATA.map(originalTask => {
-        // Se não houver filtro de data, usa os dados originais processados
-        if (!pStart && !pEnd && period === 'all') { // 'all' usually shows everything
-            if (period === '90') { /* 90 is default, might need processing check */ }
-            // Se for 'all' ou sem range, podemos retornar original?
-            // Cuidado: '90' dias é o default.
-        }
-
-        // Filtrar Apontamentos
+        // Filtrar Apontamentos por Período E por Responsável
         const activeAppts = (originalTask._apontamentos || []).filter(a => {
-            if (!pStart && !pEnd) return true;
+            // Filtro de Período
+            if (pStart || pEnd) {
+                const dVal = a.Data || a.data || "";
+                const d = parseDate(dVal);
+                if (!d) return false;
+                if (pStart && d < pStart) return false;
+                if (pEnd && d > pEnd) return false;
+            }
 
-            const dVal = a.Data || a.data || "";
-            const d = parseDate(dVal);
-            if (!d) return false;
+            // Filtro de Responsável: aplicar AQUI para recalcular horas corretamente
+            if (owner) {
+                const personName = safeStr(
+                    a["Nome colaborador"] ||
+                    a["Nome Colaborador"] ||
+                    a.nome_colaborador ||
+                    a.NomeColaborador ||
+                    a.Colaborador ||
+                    a.colaborador ||
+                    a.nome ||
+                    a.Nome ||
+                    ""
+                ).toLowerCase();
+                const filterNormal = owner.toLowerCase();
+                // Match mais flexível: se um contém o outro (cobre abreviações ou nomes parciais)
+                if (!personName.includes(filterNormal) && !filterNormal.includes(personName)) return false;
+            }
 
-            // Ajustar datas para calibração fina
-            if (pStart && d < pStart) return false;
-            if (pEnd && d > pEnd) return false;
             return true;
         });
 
-        // Recalcular Métricas
-        // Passamos -1 no index para não spammar logs
+        // Recalcular Métricas apenas com os apontamentos filtrados
         const taskId = originalTask.id || originalTask.prpId || 'unknown';
         const metrics = calculateTaskMetrics(activeAppts, taskId, -1);
 
+        const hTotalValue = (metrics.hoursProject || 0) + (metrics.hoursAdm || 0) + (metrics.hoursTraining || 0);
 
         return {
             ...originalTask,
             _apontamentos: activeAppts, // Manter apenas os ativos para drill-down
             ...metrics,
-            ...metrics,
-            get hours() { return (this.hoursProject || 0) + (this.hoursAdm || 0) + (this.hoursTraining || 0); },
+            hours: hTotalValue, // Valor estático para evitar problemas de re-renderização
             owner: metrics.assignments.map(a => a.person).join(", ") || "Sem Responsável"
         };
     });
@@ -902,9 +936,28 @@ function renderHourTypeDetails(type, data) {
     const items = [];
 
     data.forEach(task => {
-        // Se type for 'all', verificamos AMBOS
-        // Se type for 'project', só verificamos project
-        // Se type for 'adm', só verificamos adm
+        // Extrair responsáveis APENAS dos apontamentos filtrados (já filtrados por applyFilters)
+        const apontamentos = task._apontamentos || [];
+
+        // Montar mapa de horas por responsável a partir dos apontamentos
+        const personHoursMap = new Map();
+        apontamentos.forEach(a => {
+            const person = safeStr(
+                a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador ||
+                a.NomeColaborador || a.Colaborador || a.colaborador || a.nome || a.Nome || ""
+            );
+            if (!person) return;
+            const h = toNumber(a.Horas || a.horas || 0);
+            const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora || "").toLowerCase();
+
+            if (!personHoursMap.has(person)) personHoursMap.set(person, { project: 0, adm: 0, training: 0 });
+            const ph = personHoursMap.get(person);
+            if (tipo.includes("adm")) ph.adm += h;
+            else if (tipo.includes("treinamento")) ph.training += h;
+            else ph.project += h;
+        });
+
+        const ownerStr = [...personHoursMap.keys()].join(", ") || task.owner || "—";
 
         // Check Project Hours
         if (type === 'all' || type === 'project') {
@@ -913,7 +966,8 @@ function renderHourTypeDetails(type, data) {
                 items.push({
                     client: task.client,
                     title: task.type,
-                    owner: task.owner,
+                    serviceType: task.serviceType || "—",
+                    owner: ownerStr,
                     hours: val,
                     typeLabel: 'PROJETO',
                     typeColor: '#36A2EB',
@@ -929,7 +983,8 @@ function renderHourTypeDetails(type, data) {
                 items.push({
                     client: task.client,
                     title: task.type,
-                    owner: task.owner,
+                    serviceType: task.serviceType || "—",
+                    owner: ownerStr,
                     hours: val,
                     typeLabel: 'ADM',
                     typeColor: '#FF9F40',
@@ -945,7 +1000,8 @@ function renderHourTypeDetails(type, data) {
                 items.push({
                     client: task.client,
                     title: task.type,
-                    owner: task.owner,
+                    serviceType: task.serviceType || "—",
+                    owner: ownerStr,
                     hours: val,
                     typeLabel: 'TREINAMENTO',
                     typeColor: '#9d4edd',
@@ -960,7 +1016,7 @@ function renderHourTypeDetails(type, data) {
 
     // 3. Renderizar
     if (items.length === 0) {
-        detailTbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px; color: #888;">Nenhum registro encontrado para esta seleção.</td></tr>';
+        detailTbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color: #888;">Nenhum registro encontrado para esta seleção.</td></tr>';
         return;
     }
 
@@ -980,6 +1036,7 @@ function renderHourTypeDetails(type, data) {
                 </span>
                 ${item.title}
             </td>
+            <td style="padding: 8px; font-size: 0.9em; color: #64748b;">${item.serviceType}</td>
             <td style="padding: 8px; font-size: 0.9em; color: #64748b;">${item.owner}</td>
             <td style="padding: 8px; text-align: right; font-weight: bold; font-family: monospace; color: ${item.typeColor};">
                 ${item.hours.toFixed(2)}h
@@ -1141,10 +1198,10 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
         const labels = Object.keys(dTotal).sort();
         chartStatusInstance.data.labels = labels;
         chartStatusInstance.data.datasets = [
-            { label: 'Horas Totais', data: labels.map(k => dTotal[k]), backgroundColor: '#0b4f78', borderRadius: 6 },
-            { label: 'Horas Projeto', data: labels.map(k => dProj[k]), backgroundColor: '#36A2EB', borderRadius: 6 },
-            { label: 'Horas ADM', data: labels.map(k => dAdm[k]), backgroundColor: '#FF9F40', borderRadius: 6 },
-            { label: 'Horas Treinamento', data: labels.map(k => dTrain[k]), backgroundColor: '#9d4edd', borderRadius: 6 }
+            { label: 'Horas Totais', data: labels.map(k => dTotal[k] || 0), backgroundColor: '#0b4f78', borderRadius: 6 },
+            { label: 'Horas Projeto', data: labels.map(k => dProj[k] || 0), backgroundColor: '#36A2EB', borderRadius: 6 },
+            { label: 'Horas ADM', data: labels.map(k => dAdm[k] || 0), backgroundColor: '#FF9F40', borderRadius: 6 },
+            { label: 'Horas Treinamento', data: labels.map(k => dTrain[k] || 0), backgroundColor: '#9d4edd', borderRadius: 6 }
         ];
     } else {
         const statusData = processStatusData(data, metric);
@@ -1281,9 +1338,8 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
 
         // Gerar Datasets (Pessoas)
         // Cores vibrantes e profissionais
-        // Palette "Premium/Clean" - Corporate & Distinct
+        // Palette "Premium/Clean" - Corporate & Distinct (sem preto)
         const palette = [
-            '#0f172a', // Slate 900 (Deep Dark)
             '#3b82f6', // Blue 500 (Primary)
             '#10b981', // Emerald 500 (Success)
             '#8b5cf6', // Violet 500 (Creative)
@@ -1294,6 +1350,7 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
             '#84cc16', // Lime 500 (Fresh)
             '#d946ef', // Fuchsia 500
             '#f43f5e', // Rose 500
+            '#0ea5e9', // Sky 500
             '#64748b'  // Slate 500 (Neutral)
         ];
 
@@ -2018,14 +2075,12 @@ function processResponsibleData(data, metric, filterOwner = null) {
 
     data.forEach(d => {
         const apontamentos = d._apontamentos || [];
-
+        // NOTA: Os apontamentos já vêm pré-filtrados por responsável e período em applyFilters.
+        // Não é necessário aplicar filterOwner novamente aqui.
         if (apontamentos.length > 0) {
             apontamentos.forEach(a => {
                 const person = safeStr(a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador || a.NomeColaborador || a.Colaborador || a.colaborador);
                 if (!person) return;
-
-                // Filtro de Responsável
-                if (filterOwner && person !== filterOwner) return;
 
                 // Filtro de Métrica
                 let val = toNumber(a.Horas || a.horas || 0);
@@ -2106,13 +2161,12 @@ function buildResponsibleDatasets(data) {
 }
 
 function processResponsibleAggregatedData(data, metric, filterOwner = null) {
-    // Similar ao acima, mas agregação por Pessoa (X) e Mensal (Pilha)? OU Pessoa (Y) e Mês (Pilha)...
-    // A implementação anterior não estava totalmente visível, mas posso inferir.
-    // Vamos implementar um Total simples por Responsável.
+    // NOTA: Os apontamentos já vêm pré-filtrados por responsável em applyFilters.
+    // Agregação simples por pessoa a partir dos assignments já filtrados.
     const persons = {};
     data.forEach(d => {
+        // Usar assignments (já recalculados com apontamentos filtrados)
         d.assignments.forEach(a => {
-            if (filterOwner && a.person !== filterOwner) return;
             let val = 0;
             if (metric === 'hours') val = a.hoursTotal;
             else if (metric === 'hoursAdm') val = a.hoursAdm;
@@ -2121,7 +2175,6 @@ function processResponsibleAggregatedData(data, metric, filterOwner = null) {
             persons[a.person] = (persons[a.person] || 0) + val;
         });
         if (d.assignments.length === 0 && d.owner) {
-            if (filterOwner && d.owner !== filterOwner) return;
             const val = getMetricValue(d, metric);
             persons[d.owner] = (persons[d.owner] || 0) + val;
         }
