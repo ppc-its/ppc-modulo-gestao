@@ -966,6 +966,19 @@ function renderHourTypeDetails(type, data) {
 
         const ownerStr = [...personHoursMap.keys()].join(", ") || task.owner || "—";
 
+        // PRP e Observação vêm diretamente dos apontamentos (campos "PRP" e "Observação")
+        // Pega o primeiro valor preenchido encontrado entre todos os apontamentos da tarefa
+        let prpId = '—';
+        let observacao = '—';
+        for (const a of apontamentos) {
+            if (prpId === '—' && (a['PRP'] || '') !== '') prpId = String(a['PRP']);
+            if (observacao === '—') {
+                const val = a['Observação:'] || a['Observação'] || a['Observacao'] || '';
+                if (val !== '') observacao = String(val);
+            }
+            if (prpId !== '—' && observacao !== '—') break;
+        }
+
         // Check Project Hours
         if (type === 'all' || type === 'project') {
             const val = task.hoursProject || 0;
@@ -974,6 +987,8 @@ function renderHourTypeDetails(type, data) {
                     client: task.client,
                     title: task.type,
                     serviceType: task.serviceType || "—",
+                    prpId: prpId,
+                    observacao: observacao,
                     owner: ownerStr,
                     hours: val,
                     typeLabel: 'PROJETO',
@@ -991,6 +1006,8 @@ function renderHourTypeDetails(type, data) {
                     client: task.client,
                     title: task.type,
                     serviceType: task.serviceType || "—",
+                    prpId: prpId,
+                    observacao: observacao,
                     owner: ownerStr,
                     hours: val,
                     typeLabel: 'ADM',
@@ -1008,6 +1025,8 @@ function renderHourTypeDetails(type, data) {
                     client: task.client,
                     title: task.type,
                     serviceType: task.serviceType || "—",
+                    prpId: prpId,
+                    observacao: observacao,
                     owner: ownerStr,
                     hours: val,
                     typeLabel: 'TREINAMENTO',
@@ -1025,6 +1044,8 @@ function renderHourTypeDetails(type, data) {
                     client: task.client,
                     title: task.type,
                     serviceType: task.serviceType || "—",
+                    prpId: prpId,
+                    observacao: observacao,
                     owner: ownerStr,
                     hours: val,
                     typeLabel: 'DISPONÍVEL',
@@ -1040,7 +1061,7 @@ function renderHourTypeDetails(type, data) {
 
     // 3. Renderizar
     if (items.length === 0) {
-        detailTbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color: #888;">Nenhum registro encontrado para esta seleção.</td></tr>';
+        detailTbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px; color: #888;">Nenhum registro encontrado para esta seleção.</td></tr>';
         return;
     }
 
@@ -1061,6 +1082,8 @@ function renderHourTypeDetails(type, data) {
                 ${item.title}
             </td>
             <td style="padding: 8px; font-size: 0.9em; color: #64748b;">${item.serviceType}</td>
+            <td style="padding: 8px; font-size: 0.9em; color: #334155; font-family: monospace; font-weight: 600;">${item.prpId}</td>
+            <td style="padding: 8px; font-size: 0.85em; color: #64748b; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${item.observacao}">${item.observacao}</td>
             <td style="padding: 8px; font-size: 0.9em; color: #64748b;">${item.owner}</td>
             <td style="padding: 8px; text-align: right; font-weight: bold; font-family: monospace; color: ${item.typeColor};">
                 ${item.hours.toFixed(2)}h
@@ -2574,9 +2597,11 @@ function processDailyListHelper(data, metric, filterOwner) {
                 else if (tipo.includes('treinamento')) typeLabel = 'training';
                 else if (tipo.includes('disponível') || tipo.includes('disponivel') || tipo.includes('disp')) typeLabel = 'disponivel';
 
+                const prpFromApontamento = a['PRP'] || a['prp'] || item.prpId;
+
                 dates[dateKey].push({
                     id: item.id,
-                    prpId: item.prpId, // Passar PRP ID
+                    prpId: prpFromApontamento, // Passar PRP do apontamento (novo padrão)
                     client: item.client || item.title,
                     person: person,
                     hours: h,
