@@ -101,6 +101,26 @@ const api = {
 
         if (!resp.ok) throw new Error("Erro ao atualizar status do checklist");
         return resp.json();
+    },
+
+    async updateChecklistDate(itemId, Data) {
+        const resp = await fetch(`${LISTS_BASE_URL}/checklist/${itemId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ Data })
+        });
+
+        if (!resp.ok) throw new Error("Erro ao atualizar data do checklist");
+        return resp.json();
+    },
+
+    async deleteChecklistItem(itemId) {
+        const resp = await fetch(`${LISTS_BASE_URL}/checklist/delet/${itemId}`, {
+            method: "DELETE"
+        });
+
+        if (!resp.ok) throw new Error("Erro ao excluir item do checklist");
+        return resp.json();
     }
 };
 

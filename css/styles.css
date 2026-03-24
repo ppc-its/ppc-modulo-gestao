@@ -641,19 +641,184 @@ select {
   opacity: 0.6;
 }
 
+.checklist-date {
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 4px 6px;
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  width: auto;
+}
+
+.checklist-date:hover, .checklist-date:focus {
+  border-color: rgba(17, 59, 90, 0.15);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--panel-2);
+}
+
+.checklist-date::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.checklist-date:hover::-webkit-calendar-picker-indicator {
+  opacity: 1;
+}
+
 .checklist-delete {
   cursor: pointer;
   background: none;
   border: none;
-  color: rgba(200, 50, 50, 0.6);
-  font-size: 16px;
+  color: rgba(180, 40, 40, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
   opacity: 0;
-  transition: opacity 0.2s;
-  padding: 0 4px;
+  transition: opacity 0.2s, background 0.2s, color 0.2s, transform 0.15s;
+  padding: 0;
+  flex-shrink: 0;
 }
 
 .checklist-item:hover .checklist-delete {
   opacity: 1;
+}
+
+.checklist-delete:hover {
+  background: rgba(200, 40, 40, 0.10);
+  color: rgba(200, 40, 40, 0.9);
+  transform: scale(1.15);
+}
+
+/* ===== Modal de Confirmação de Exclusão do Checklist ===== */
+.cl-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 15, 26, 0.45);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 0.22s ease;
+}
+
+.cl-confirm-backdrop.cl-confirm-visible {
+  opacity: 1;
+}
+
+.cl-confirm-box {
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 32px 28px 24px;
+  width: min(380px, 92vw);
+  box-shadow: 0 24px 60px rgba(10, 15, 26, 0.22), 0 2px 8px rgba(10, 15, 26, 0.08);
+  border: 1px solid rgba(17, 59, 90, 0.10);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  transform: translateY(14px) scale(0.97);
+  transition: transform 0.25s cubic-bezier(.22,.68,0,1.2);
+}
+
+.cl-confirm-backdrop.cl-confirm-visible .cl-confirm-box {
+  transform: translateY(0) scale(1);
+}
+
+.cl-confirm-icon {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: rgba(200, 40, 40, 0.08);
+  border: 1.5px solid rgba(200, 40, 40, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(185, 35, 35, 0.85);
+  margin-bottom: 16px;
+}
+
+.cl-confirm-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 900;
+  color: #0a0f1a;
+  letter-spacing: 0.2px;
+}
+
+.cl-confirm-desc {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #2c3a50;
+  background: rgba(17, 59, 90, 0.06);
+  border: 1px solid rgba(17, 59, 90, 0.12);
+  border-radius: 10px;
+  padding: 8px 14px;
+  max-width: 100%;
+  word-break: break-word;
+  font-style: italic;
+}
+
+.cl-confirm-sub {
+  margin: 8px 0 22px;
+  font-size: 12px;
+  color: rgba(10, 15, 26, 0.50);
+  font-weight: 600;
+}
+
+.cl-confirm-actions {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.cl-btn-cancel {
+  flex: 1;
+  cursor: pointer;
+  border: 1.5px solid rgba(17, 59, 90, 0.18);
+  border-radius: 14px;
+  padding: 11px 0;
+  background: #f6f8fb;
+  color: #0a0f1a;
+  font-weight: 800;
+  font-size: 13px;
+  transition: background 0.18s, border-color 0.18s;
+}
+
+.cl-btn-cancel:hover {
+  background: #edf0f5;
+  border-color: rgba(17, 59, 90, 0.30);
+}
+
+.cl-btn-delete {
+  flex: 1;
+  cursor: pointer;
+  border: none;
+  border-radius: 14px;
+  padding: 11px 0;
+  background: linear-gradient(135deg, #c0392b 0%, #e74c3c 100%);
+  color: #fff;
+  font-weight: 900;
+  font-size: 13px;
+  box-shadow: 0 4px 14px rgba(192, 57, 43, 0.35);
+  transition: box-shadow 0.18s, transform 0.15s, filter 0.18s;
+}
+
+.cl-btn-delete:hover {
+  box-shadow: 0 6px 20px rgba(192, 57, 43, 0.50);
+  filter: brightness(1.08);
+  transform: translateY(-1px);
 }
 
 .checklist-input-row {
