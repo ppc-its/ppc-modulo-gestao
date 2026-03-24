@@ -4,7 +4,6 @@
    ========================= */
 
 const STATUS_ORDER = [
-  { key: "Em Avaliação", label: "Em Avaliação" },
   { key: "Backlog", label: "Backlog" },
   { key: "Em andamento", label: "Em Andamento" },
   { key: "Concluída", label: "Concluída" },
@@ -47,8 +46,8 @@ function initials(name) {
 function normalizeStatus(raw) {
   const s = safeStr(raw).toLowerCase();
 
-  // "Em Avaliação"
-  if (["em avaliação", "em avaliacao", "avaliacao", "avaliação", "analise", "análise"].includes(s)) return "Em Avaliação";
+  // "Em Avaliação" (Agrupado no Backlog)
+  if (["em avaliação", "em avaliacao", "avaliacao", "avaliação", "analise", "análise"].includes(s)) return "Backlog";
 
   // "Backlog"
   if (["backlog", "to do", "todo", "a fazer", "fila"].includes(s)) return "Backlog";
