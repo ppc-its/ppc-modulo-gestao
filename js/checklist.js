@@ -25,7 +25,7 @@ function renderChecklist(task, container) {
     itemEl.innerHTML = `
       <input type="checkbox" class="checklist-checkbox" ${item.done ? "checked" : ""}>
       <input type="text" class="checklist-text ${item.done ? "done" : ""}" value="${escapeHTML(item.text)}">
-      <input type="date" class="checklist-date" value="${item.date || ""}" title="Definir data de conclusão" />
+      <input type="date" class="checklist-date" value="${formatDateForInput(item.date)}" title="Definir data de conclusão" />
       <button class="checklist-delete" title="Excluir item">
         <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"/>
@@ -120,6 +120,16 @@ async function loadChecklistFromAPI(demandaId) {
   }
 }
 
+function formatDateForInput(dateString) {
+  if (!dateString) return "";
+
+  // "06/04/2026 03:00"
+  const [datePart] = dateString.split(" ");
+  const [dia, mes, ano] = datePart.split("/");
+
+  return `${ano}-${mes}-${dia}`;
+}
+
 /**
  * Exibe um modal de confirmação elegante antes de excluir um item do checklist.
  * Retorna uma Promise<boolean>.
@@ -149,7 +159,7 @@ function showDeleteConfirm(itemText) {
         <p class="cl-confirm-sub">Esta ação não pode ser desfeita.</p>
         <div class="cl-confirm-actions">
           <button class="cl-btn-cancel">Cancelar</button>
-          <button class="cl-btn-delete">Excluir</button>
+          // <button class="cl-btn-delete">Excluir</button>
         </div>
       </div>
     `;
