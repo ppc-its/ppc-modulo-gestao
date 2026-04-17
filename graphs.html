@@ -453,11 +453,104 @@
             </div>
         </main>
     </div>
+
+    <div id="loginModal" class="login-backdrop">
+        <div class="login-box">
+            <img src="assets/logo.svg" alt="Logo Empresa" class="login-logo" />
+    
+            <!-- <h2>Acesso ao Sistema</h2> -->
+    
+            <input type="email" id="loginEmail" placeholder="E-mail" />
+            <input type="password" id="loginPassword" placeholder="Senha" />
+    
+            <button id="loginBtn">Entrar</button>
+    
+            <div id="loginError" class="login-error"></div>
+            <div class="footer">
+                © 2026 PP&C Auditores Independentes
+            </div>
+        </div>
+    </div>
+
     <!-- CDN Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
     <script src="js/api.js"></script>
     <script src="js/graphs.js"></script>
-</body>
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const loginModal = document.getElementById("loginModal");
+            const loginBtn = document.getElementById("loginBtn");
+            const loginError = document.getElementById("loginError");
 
+            const usuarios = [
+                { email: "f.liani@ppc.com.br", senha: "654321" },
+                { email: "victor.rodrigues@ppc.com.br", senha: "654321" }
+            ];
+
+            const SESSION_TIME = 10 * 60 * 60 * 1000; 
+
+            function bloquearTela() {
+                loginModal.style.display = "flex";
+                document.body.style.overflow = "hidden";
+            }
+
+            function liberarTela() {
+                loginModal.style.display = "none";
+                document.body.style.overflow = "auto";
+            }
+
+            function salvarSessao(email) {
+                const agora = new Date().getTime();
+
+                localStorage.setItem("logged", "true");
+                localStorage.setItem("userEmail", email);
+                localStorage.setItem("loginTime", agora.toString());
+            }
+
+            function sessaoValida() {
+                const logged = localStorage.getItem("logged");
+                const loginTime = localStorage.getItem("loginTime");
+
+                if (logged !== "true" || !loginTime) return false;
+
+                const agora = new Date().getTime();
+                const diff = agora - parseInt(loginTime, 10);
+
+                return diff < SESSION_TIME;
+            }
+
+            function logout() {
+                localStorage.removeItem("logged");
+                localStorage.removeItem("userEmail");
+                localStorage.removeItem("loginTime");
+            }
+
+            if (sessaoValida()) {
+                liberarTela();
+            } else {
+                logout();
+                bloquearTela();
+            }
+
+            // 🔥 Login
+            loginBtn.addEventListener("click", () => {
+                const email = document.getElementById("loginEmail").value;
+                const senha = document.getElementById("loginPassword").value;
+
+                const usuarioValido = usuarios.find(
+                    user => user.email === email && user.senha === senha
+                );
+
+                if (usuarioValido) {
+                    salvarSessao(usuarioValido.email);
+                    loginError.textContent = "";
+                    liberarTela();
+                } else {
+                    loginError.textContent = "E-mail ou senha inválidos";
+                }
+            });
+        });
+    </script>
+</body>
 </html>
