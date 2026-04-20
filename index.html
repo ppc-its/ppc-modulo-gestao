@@ -93,6 +93,9 @@
       <div class="topbar">
         <div class="title-pill">MÓDULO DE GESTÃO DE TAREFAS - ESFORÇO × HORAS</div>
         <div class="top-actions">
+          <button id="btnPainelPrazos" class="action-chip" title="Painel de Prazos e Status" style="border:none;cursor:pointer;">
+            <span>📅 Painel de Prazos</span>
+          </button>
           <a href="graphs.html" class="action-chip" title="Gráficos (visual)"
             style="text-decoration:none"><span>Gráficos</span></a>
         </div>
@@ -125,6 +128,63 @@
       <div class="note" id="modalNote"></div>
     </div>
   </div>
+
+  <!-- ====== PAINEL DE PRAZOS - Gaveta Lateral ====== -->
+  <div id="prazosOverlay" class="prazos-overlay"></div>
+  <aside id="prazosDrawer" class="prazos-drawer" aria-label="Painel de Prazos">
+    <div class="prazos-header">
+      <div class="prazos-header-left">
+        <div class="prazos-icon">📅</div>
+        <div>
+          <h2 class="prazos-title">Painel de Prazos</h2>
+          <p class="prazos-subtitle">Visão geral por status de projeto</p>
+        </div>
+      </div>
+      <button id="btnClosePrazos" class="prazos-close" title="Fechar painel">✕</button>
+    </div>
+
+    <!-- Resumo numérico -->
+    <div class="prazos-summary-row" id="prazosSummaryRow"></div>
+
+    <!-- Seções -->
+    <div class="prazos-body">
+      <!-- A INICIAR -->
+      <div class="prazos-section">
+        <div class="prazos-section-header prazos-section-start">
+          <span class="prazos-section-icon">🔵</span>
+          <span class="prazos-section-label">A Iniciar</span>
+          <span class="prazos-section-count" id="countStart">0</span>
+        </div>
+        <div class="prazos-cards" id="cardsStart">
+          <div class="prazos-empty">Nenhum projeto a iniciar</div>
+        </div>
+      </div>
+
+      <!-- EM ANDAMENTO -->
+      <div class="prazos-section">
+        <div class="prazos-section-header prazos-section-ongoing">
+          <span class="prazos-section-icon">🟡</span>
+          <span class="prazos-section-label">Em Andamento</span>
+          <span class="prazos-section-count" id="countOngoing">0</span>
+        </div>
+        <div class="prazos-cards" id="cardsOngoing">
+          <div class="prazos-empty">Nenhum projeto em andamento</div>
+        </div>
+      </div>
+
+      <!-- ATRASADOS -->
+      <div class="prazos-section">
+        <div class="prazos-section-header prazos-section-late">
+          <span class="prazos-section-icon">🔴</span>
+          <span class="prazos-section-label">Atrasados</span>
+          <span class="prazos-section-count" id="countLate">0</span>
+        </div>
+        <div class="prazos-cards" id="cardsLate">
+          <div class="prazos-empty">Nenhum projeto atrasado 🎉</div>
+        </div>
+      </div>
+    </div>
+  </aside>
 
   <!-- Amostra embutida (usada quando não há data/tasks.json e nenhum cache ainda) -->
   <script>

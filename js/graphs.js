@@ -177,63 +177,58 @@ function mergeData(tasksList, apontamentosList) {
 
     console.log(`🔗 [Graphs] Iniciando merge de ${tasksList.length} tarefas com ${apontamentosList.length} apontamentos`);
 
-    // Debug: Verificar se há campos com espaços
-    if (apontamentosList.length > 0) {
-        const firstApontamento = apontamentosList[0];
-        const fieldsWithSpaces = Object.keys(firstApontamento).filter(k => k !== k.trim());
-        if (fieldsWithSpaces.length > 0) {
-            console.warn(`⚠️ [Graphs] ATENÇÃO: API retorna campos com espaços extras:`, fieldsWithSpaces);
-            console.warn(`⚠️ [Graphs] Exemplo: "${fieldsWithSpaces[0]}" vs "${fieldsWithSpaces[0].trim()}"`);
-        }
-    }
-
-    // Criar mapa de apontamentos agrupados por ID da demanda
-    const map = new Map();
-    let apontamentosComId = 0;
-    let apontamentosSemId = 0;
+    // ── ESTRATÉGIA 1: Match por DemandaId (quando disponível) ──────────────
+    const mapById = new Map();
+    let withId = 0;
+    let withoutId = 0;
 
     apontamentosList.forEach(a => {
-        // Tentar múltiplas variações de campo de ID
-        // CRÍTICO: A API retorna "DemandaId " COM ESPAÇO NO FINAL!
-        const key = String(
-            a["DemandaId "] ||  // ← COM ESPAÇO (bug da API)
-            a.DemandaId ||
-            a.demanda_id ||
-            a.demandaId ||
-            a.demanda_Id ||
-            a.id ||
-            a.ID ||
-            ""
-        ).trim();
-
+        const rawId = a["DemandaId "] || a.DemandaId || a.demanda_id || a.demandaId || a.demanda_Id || null;
+        const key = rawId ? String(rawId).trim() : null;
         if (key) {
-            apontamentosComId++;
-            if (!map.has(key)) map.set(key, []);
-            map.get(key).push(a);
+            withId++;
+            if (!mapById.has(key)) mapById.set(key, []);
+            mapById.get(key).push(a);
         } else {
-            apontamentosSemId++;
-            console.warn('⚠️ [Graphs] Apontamento sem ID válido:', a);
+            withoutId++;
         }
     });
 
-    console.log(`📊 [Graphs] Apontamentos: ${apontamentosComId} com ID, ${apontamentosSemId} sem ID`);
-    console.log(`📊 [Graphs] IDs únicos de demandas nos apontamentos:`, [...map.keys()]);
+    console.log(`📊 [Graphs] Apontamentos: ${withId} com DemandaId, ${withoutId} sem DemandaId`);
 
-    // Anexar apontamentos às tarefas
+    // ── ESTRATÉGIA 2: Match por Nome Cliente (fallback quando DemandaId = null) ──
+    // Normaliza o nome para evitar diferenças de maiúsculas/espaços
+    const normalizeCliente = (s) => String(s || "").trim().toLowerCase();
+
+    const mapByCliente = new Map();
+    apontamentosList.forEach(a => {
+        const cliente = normalizeCliente(a["Nome Cliente"] || a["Nome cliente"] || a.NomeCliente || a.cliente || "");
+        if (cliente) {
+            if (!mapByCliente.has(cliente)) mapByCliente.set(cliente, []);
+            mapByCliente.get(cliente).push(a);
+        }
+    });
+
+    console.log(`📊 [Graphs] Clientes únicos nos apontamentos: ${mapByCliente.size}`);
+
+    // ── Vincula apontamentos às tarefas ──────────────────────────────────────
     let tasksComApontamentos = 0;
     let tasksSemApontamentos = 0;
 
     const result = tasksList.map(task => {
-        // Tentar múltiplas variações de campo de ID da tarefa
-        const taskId = String(
-            task.id ||
-            task.ID ||
-            task["ID"] ||
-            task.Id ||
-            ""
-        ).trim();
+        // Tenta por ID primeiro
+        const taskId = String(task.id || task.ID || task["ID"] || task.Id || "").trim();
+        let apontamentos = taskId && mapById.has(taskId) ? mapById.get(taskId) : [];
 
-        const apontamentos = map.has(taskId) ? map.get(taskId) : [];
+        // Se não encontrou por ID, tenta por Nome Cliente
+        if (apontamentos.length === 0) {
+            const nomeCliente = normalizeCliente(
+                task["Nome Cliente"] || task["Contato Cliente"] || task.cliente || task.client || ""
+            );
+            if (nomeCliente && mapByCliente.has(nomeCliente)) {
+                apontamentos = mapByCliente.get(nomeCliente);
+            }
+        }
 
         if (apontamentos.length > 0) {
             tasksComApontamentos++;
@@ -241,16 +236,14 @@ function mergeData(tasksList, apontamentosList) {
             tasksSemApontamentos++;
         }
 
-        return {
-            ...task,
-            _apontamentos: apontamentos
-        };
+        return { ...task, _apontamentos: apontamentos };
     });
 
     console.log(`✅ [Graphs] Merge concluído: ${tasksComApontamentos} tarefas COM apontamentos, ${tasksSemApontamentos} tarefas SEM apontamentos`);
 
     return result;
 }
+
 
 /**
  * Lógica de processamento atualizada para usar Apontamentos Reais
@@ -298,6 +291,8 @@ function processTasks(tasks) {
                 firstAppt.cliente ||
                 firstAppt.Cliente ||
                 t.client ||
+                raw["Nome Cliente"] ||
+                raw["Contato Cliente"] ||
                 raw["Cliente"] ||
                 raw.cliente ||
                 "SEM CLIENTE";
@@ -305,6 +300,8 @@ function processTasks(tasks) {
             // Se não houver apontamentos, tentar pegar da tarefa
             client =
                 t.client ||
+                raw["Nome Cliente"] ||
+                raw["Contato Cliente"] ||
                 raw["Cliente"] ||
                 raw.cliente ||
                 raw.Client ||
@@ -2636,14 +2633,10 @@ function calculateTaskMetrics(apontamentos, taskId, index) {
             0
         );
 
-        // Log detalhado de cada apontamento (apenas se index >= 0)
+        // Log detalhado apenas para o primeiro apontamento da primeira tarefa
         if (index === 0 && aIndex === 0) {
             console.log(`📋 [Graphs] Exemplo de apontamento completo:`, a);
             console.log(`📋 [Graphs] Campos disponíveis:`, Object.keys(a));
-        }
-
-        if (h === 0 && index >= 0) {
-            console.warn(`⚠️ [Graphs] Apontamento sem horas na tarefa ${taskId}:`, a);
         }
 
         hTotal += h;
@@ -2705,8 +2698,6 @@ function calculateTaskMetrics(apontamentos, taskId, index) {
                 ""
             );
             if (role) p.roles.add(role);
-        } else if (index >= 0) {
-            console.warn(`⚠️ [Graphs] Apontamento sem nome de colaborador na tarefa ${taskId}:`, a);
         }
     });
 
