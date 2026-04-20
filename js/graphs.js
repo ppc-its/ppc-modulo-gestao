@@ -162,7 +162,44 @@ async function loadData() {
         console.error("❌ [Graphs] Erro ao carregar dados da API:", e);
         console.error("Stack trace:", e.stack);
         APP_DATA = [];
+
+        // Fallback: tentar carregar tasks.json local
+        try {
+            const resp = await fetch("./data/tasks.json", { cache: "no-store" });
+            if (resp.ok) {
+                const obj = await resp.json();
+                const rawTasks = obj.tasks || [];
+                APP_DATA = processTasks(rawTasks.map(t => ({ ...t, _apontamentos: [] })));
+                console.warn(`⚠️ [Graphs] API offline — usando ${APP_DATA.length} tarefas do tasks.json local (sem apontamentos)`);
+                _showGraphsBanner(`⚠️ API indisponível (${e.message}) — exibindo dados do cache local sem horas/responsáveis`, "warn");
+            }
+        } catch (_) { /* sem fallback disponível */ }
+
+        if (APP_DATA.length === 0) {
+            _showGraphsBanner(`❌ Erro ao carregar dados: ${e.message} — verifique se o servidor Flask está rodando em ${API_BASE_URL}`, "error");
+        }
     }
+}
+
+function _showGraphsBanner(msg, type = "info") {
+    let banner = document.getElementById("graphsBanner");
+    if (!banner) {
+        banner = document.createElement("div");
+        banner.id = "graphsBanner";
+        banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;padding:10px 20px;font-size:13px;font-weight:600;text-align:center;";
+        document.body.prepend(banner);
+    }
+    banner.textContent = msg;
+    banner.style.background = type === "error" ? "#e63946" : type === "warn" ? "#f4a261" : "#2a9d8f";
+    banner.style.color = "#fff";
+}
+
+// Normaliza IDs para comparação robusta: "123.0" → "123", 123 → "123"
+function normalizeId(val) {
+    if (val == null || val === "") return "";
+    const s = String(val).trim();
+    const n = parseFloat(s);
+    return (!isNaN(n) && isFinite(n)) ? String(Math.round(n)) : s;
 }
 
 function mergeData(tasksList, apontamentosList) {
@@ -177,63 +214,62 @@ function mergeData(tasksList, apontamentosList) {
 
     console.log(`🔗 [Graphs] Iniciando merge de ${tasksList.length} tarefas com ${apontamentosList.length} apontamentos`);
 
-    // Debug: Verificar se há campos com espaços
-    if (apontamentosList.length > 0) {
-        const firstApontamento = apontamentosList[0];
-        const fieldsWithSpaces = Object.keys(firstApontamento).filter(k => k !== k.trim());
-        if (fieldsWithSpaces.length > 0) {
-            console.warn(`⚠️ [Graphs] ATENÇÃO: API retorna campos com espaços extras:`, fieldsWithSpaces);
-            console.warn(`⚠️ [Graphs] Exemplo: "${fieldsWithSpaces[0]}" vs "${fieldsWithSpaces[0].trim()}"`);
-        }
-    }
-
-    // Criar mapa de apontamentos agrupados por ID da demanda
-    const map = new Map();
-    let apontamentosComId = 0;
-    let apontamentosSemId = 0;
+    // ── Match por DemandaId (IDs normalizados para evitar "123" vs "123.0") ──
+    const mapById = new Map();
+    let withId = 0;
+    let withoutId = 0;
 
     apontamentosList.forEach(a => {
-        // Tentar múltiplas variações de campo de ID
-        // CRÍTICO: A API retorna "DemandaId " COM ESPAÇO NO FINAL!
-        const key = String(
-            a["DemandaId "] ||  // ← COM ESPAÇO (bug da API)
-            a.DemandaId ||
-            a.demanda_id ||
-            a.demandaId ||
-            a.demanda_Id ||
-            a.id ||
-            a.ID ||
-            ""
-        ).trim();
-
+        const rawId = a["DemandaId "] || a.DemandaId || a.demanda_id || a.demandaId || a.demanda_Id || null;
+        const key = rawId != null ? normalizeId(rawId) : null;
         if (key) {
-            apontamentosComId++;
-            if (!map.has(key)) map.set(key, []);
-            map.get(key).push(a);
+            withId++;
+            if (!mapById.has(key)) mapById.set(key, []);
+            mapById.get(key).push(a);
         } else {
-            apontamentosSemId++;
-            console.warn('⚠️ [Graphs] Apontamento sem ID válido:', a);
+            withoutId++;
         }
     });
 
-    console.log(`📊 [Graphs] Apontamentos: ${apontamentosComId} com ID, ${apontamentosSemId} sem ID`);
-    console.log(`📊 [Graphs] IDs únicos de demandas nos apontamentos:`, [...map.keys()]);
+    // Log dos primeiros IDs para diagnóstico
+    if (apontamentosList.length > 0) {
+        const a0 = apontamentosList[0];
+        console.log(`🔑 [Merge] Exemplo DemandaId do 1º apontamento: DemandaId="${a0["DemandaId "] ?? a0.DemandaId ?? a0.demanda_id ?? '(vazio)'}" → normalizado="${normalizeId(a0["DemandaId "] ?? a0.DemandaId ?? a0.demanda_id ?? "")}"`);
+    }
+    if (tasksList.length > 0) {
+        const t0 = tasksList[0];
+        console.log(`🔑 [Merge] Exemplo id do 1ª tarefa: id="${t0.id ?? t0.ID ?? '(vazio)'}" → normalizado="${normalizeId(t0.id ?? t0.ID ?? "")}"`);
+    }
 
-    // Anexar apontamentos às tarefas
+    console.log(`📊 [Graphs] Apontamentos: ${withId} com DemandaId, ${withoutId} sem DemandaId. IDs únicos: ${mapById.size}`);
+
+    // ── Fallback por Nome Cliente (usado quando DemandaId é null no backend) ──
+    const norm = s => String(s || "").trim().toLowerCase();
+    const mapByCliente = new Map();
+    apontamentosList.forEach(a => {
+        const cliente = norm(a["Nome Cliente"] || a["Nome cliente"] || a.NomeCliente || a.cliente || "");
+        if (cliente) {
+            if (!mapByCliente.has(cliente)) mapByCliente.set(cliente, []);
+            mapByCliente.get(cliente).push(a);
+        }
+    });
+    console.log(`📊 [Graphs] Clientes únicos nos apontamentos: ${mapByCliente.size}`);
+
+    // ── Vincula apontamentos às tarefas (ID primeiro, Nome Cliente como fallback) ──
     let tasksComApontamentos = 0;
     let tasksSemApontamentos = 0;
 
     const result = tasksList.map(task => {
-        // Tentar múltiplas variações de campo de ID da tarefa
-        const taskId = String(
-            task.id ||
-            task.ID ||
-            task["ID"] ||
-            task.Id ||
-            ""
-        ).trim();
+        const taskId = normalizeId(task.id ?? task.ID ?? task["ID"] ?? task.Id ?? "");
+        let apontamentos = taskId && mapById.has(taskId) ? mapById.get(taskId) : [];
 
-        const apontamentos = map.has(taskId) ? map.get(taskId) : [];
+        // Fallback por Nome Cliente quando DemandaId não está preenchido no backend
+        if (apontamentos.length === 0 && withoutId > 0) {
+            const clienteTask = norm(task["Nome Cliente"] || task["Contato Cliente"] || task.cliente || "");
+            if (clienteTask && mapByCliente.has(clienteTask)) {
+                apontamentos = mapByCliente.get(clienteTask);
+            }
+        }
 
         if (apontamentos.length > 0) {
             tasksComApontamentos++;
@@ -241,16 +277,14 @@ function mergeData(tasksList, apontamentosList) {
             tasksSemApontamentos++;
         }
 
-        return {
-            ...task,
-            _apontamentos: apontamentos
-        };
+        return { ...task, _apontamentos: apontamentos };
     });
 
     console.log(`✅ [Graphs] Merge concluído: ${tasksComApontamentos} tarefas COM apontamentos, ${tasksSemApontamentos} tarefas SEM apontamentos`);
 
     return result;
 }
+
 
 /**
  * Lógica de processamento atualizada para usar Apontamentos Reais
@@ -282,7 +316,19 @@ function processTasks(tasks) {
 
         const { hoursProject: hProject, hoursAdm: hAdm, assignments } = metrics;
 
-        // Responsável - Somente via Apontamentos (assignments)
+        // Se não há apontamentos, usar campos diretos da demanda como fallback
+        if (assignments.length === 0) {
+            const directFields = [
+                "Responsável Demanda", "Responsável Cyber",
+                "Responsável Intelidados", "Trainee do Projeto"
+            ];
+            directFields.forEach(field => {
+                const name = safeStr(raw[field]);
+                if (name) assignments.push({ person: name, hours: 0, role: "" });
+            });
+        }
+
+        // Responsável - Via Apontamentos ou campos diretos da demanda
         const owner = assignments.map(a => a.person).join(", ") || "Sem Responsável";
 
         // Cliente - Extrair do primeiro apontamento (todos devem ter o mesmo cliente)
@@ -298,6 +344,8 @@ function processTasks(tasks) {
                 firstAppt.cliente ||
                 firstAppt.Cliente ||
                 t.client ||
+                raw["Nome Cliente"] ||
+                raw["Contato Cliente"] ||
                 raw["Cliente"] ||
                 raw.cliente ||
                 "SEM CLIENTE";
@@ -305,6 +353,8 @@ function processTasks(tasks) {
             // Se não houver apontamentos, tentar pegar da tarefa
             client =
                 t.client ||
+                raw["Nome Cliente"] ||
+                raw["Contato Cliente"] ||
                 raw["Cliente"] ||
                 raw.cliente ||
                 raw.Client ||
@@ -669,9 +719,12 @@ function applyFilters() {
         const activeAppts = (originalTask._apontamentos || []).filter(a => {
             // Filtro de Período
             if (pStart || pEnd) {
-                const dVal = a.Data || a.data || "";
+                // Tenta múltiplos nomes de campo para a data do apontamento
+                const dVal = a.Data || a.data || a["Data Apontamento"] || a["Data do Apontamento"] ||
+                             a["data_apontamento"] || a["DataApontamento"] || a.date || a.Date || "";
                 const d = parseDate(dVal);
-                if (!d) return false;
+                // Se não tem data reconhecível, não descartar — mantém o apontamento
+                if (!d) return true;
                 if (pStart && d < pStart) return false;
                 if (pEnd && d > pEnd) return false;
             }
@@ -703,12 +756,22 @@ function applyFilters() {
 
         const hTotalValue = (metrics.hoursProject || 0) + (metrics.hoursAdm || 0) + (metrics.hoursTraining || 0) + (metrics.hoursDisponivel || 0);
 
+        // Preservar assignments do processTasks quando o recálculo não produz nenhum
+        // (evita perder responsáveis quando não há apontamentos no período selecionado)
+        const finalAssignments = metrics.assignments.length > 0
+            ? metrics.assignments
+            : (originalTask.assignments || []);
+
         return {
             ...originalTask,
-            _apontamentos: activeAppts, // Manter apenas os ativos para drill-down
-            ...metrics,
-            hours: hTotalValue, // Valor estático para evitar problemas de re-renderização
-            owner: metrics.assignments.map(a => a.person).join(", ") || "Sem Responsável"
+            _apontamentos: activeAppts,
+            hoursProject: metrics.hoursProject,
+            hoursAdm: metrics.hoursAdm,
+            hoursTraining: metrics.hoursTraining,
+            hoursDisponivel: metrics.hoursDisponivel,
+            assignments: finalAssignments,
+            hours: hTotalValue,
+            owner: finalAssignments.map(a => a.person).join(", ") || originalTask.owner || "Sem Responsável"
         };
     });
 
@@ -2636,14 +2699,10 @@ function calculateTaskMetrics(apontamentos, taskId, index) {
             0
         );
 
-        // Log detalhado de cada apontamento (apenas se index >= 0)
+        // Log detalhado apenas para o primeiro apontamento da primeira tarefa
         if (index === 0 && aIndex === 0) {
             console.log(`📋 [Graphs] Exemplo de apontamento completo:`, a);
             console.log(`📋 [Graphs] Campos disponíveis:`, Object.keys(a));
-        }
-
-        if (h === 0 && index >= 0) {
-            console.warn(`⚠️ [Graphs] Apontamento sem horas na tarefa ${taskId}:`, a);
         }
 
         hTotal += h;
@@ -2705,8 +2764,6 @@ function calculateTaskMetrics(apontamentos, taskId, index) {
                 ""
             );
             if (role) p.roles.add(role);
-        } else if (index >= 0) {
-            console.warn(`⚠️ [Graphs] Apontamento sem nome de colaborador na tarefa ${taskId}:`, a);
         }
     });
 

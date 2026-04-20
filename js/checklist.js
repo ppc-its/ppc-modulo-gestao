@@ -159,7 +159,7 @@ function showDeleteConfirm(itemText) {
         <p class="cl-confirm-sub">Esta ação não pode ser desfeita.</p>
         <div class="cl-confirm-actions">
           <button class="cl-btn-cancel">Cancelar</button>
-          // <button class="cl-btn-delete">Excluir</button>
+          <button class="cl-btn-delete">Excluir</button>
         </div>
       </div>
     `;

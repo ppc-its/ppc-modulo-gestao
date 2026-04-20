@@ -170,6 +170,18 @@ function normalizeRow(row) {
     role: [...p.roles].join("/")
   }));
 
+  // Se não há apontamentos vinculados, usar campos diretos da demanda como fallback
+  if (participants.length === 0) {
+    const directFields = [
+      "Responsável Demanda", "Responsável Cyber",
+      "Responsável Intelidados", "Trainee do Projeto"
+    ];
+    directFields.forEach(field => {
+      const name = safeStr(row[field]);
+      if (name) participants.push({ name, hours: 0, role: "" });
+    });
+  }
+
   const responsible = participants.map(p => p.name).join(", ") || "Sem responsável";
   const hoursProject = Math.max(0, hoursTotal - hoursAdm - hoursTraining);
 
@@ -810,8 +822,14 @@ function populatePeopleDropdown() {
   const people = new Set();
   tasks.forEach(t => {
     if (t.responsible && t.responsible !== "Sem responsável") {
-      t.responsible.split(", ").forEach(p => people.add(p.trim()));
+      t.responsible.split(", ").forEach(p => { if (p.trim()) people.add(p.trim()); });
     }
+    // Também varrer campos diretos da demanda como fallback
+    const raw = t.raw || {};
+    ["Responsável Demanda", "Responsável Cyber", "Responsável Intelidados", "Trainee do Projeto"].forEach(f => {
+      const n = safeStr(raw[f]);
+      if (n) people.add(n.trim());
+    });
   });
 
   const sorted = [...people].sort((a, b) => a.localeCompare(b));
@@ -1036,11 +1054,13 @@ async function init() {
     if (cachedTasks) {
       tasks = normalizeTasks(cachedTasks);
       render();
-      setBanner("Aviso: Mostrando dados do cache local (API offline).", "info");
+      setBanner(`⚠️ API indisponível (${API_BASE_URL}) — exibindo cache local. Erro: ${e.message}`, "info");
     } else if (window.__PPC_SAMPLE__) {
       tasks = normalizeTasks(window.__PPC_SAMPLE__);
       render();
-      setBanner("Aviso: Mostrando dados de amostra.", "info");
+      setBanner(`⚠️ API indisponível (${API_BASE_URL}) — exibindo dados de amostra. Erro: ${e.message}`, "info");
+    } else {
+      setBanner(`❌ Sem dados: API offline (${API_BASE_URL}) e sem cache local. Erro: ${e.message}`, "info");
     }
   } finally {
     // Esconder o loader
@@ -1049,36 +1069,61 @@ async function init() {
   }
 }
 
+// Normaliza IDs para comparação robusta: "123.0" → "123", 123 → "123"
+function normalizeId(val) {
+  if (val == null || val === "") return "";
+  const s = String(val).trim();
+  const n = parseFloat(s);
+  return (!isNaN(n) && isFinite(n)) ? String(Math.round(n)) : s;
+}
+
 function mergeData(tasksList, apontamentosList) {
   if (!Array.isArray(tasksList)) return [];
   if (!Array.isArray(apontamentosList)) return tasksList;
 
-  // Criar mapa de apontamentos agrupados por ID da demanda
-  const map = new Map();
+  // Criar mapa de apontamentos agrupados pelo DemandaId (normalizado)
+  const mapById = new Map();
+  let semDemandaId = 0;
   apontamentosList.forEach(a => {
-    // CRÍTICO: A API às vezes retorna "DemandaId " COM ESPAÇO NO FINAL! (Sync com graphs.js)
-    const key = String(
-      a["DemandaId "] ||
-      a.DemandaId ||
-      a.demanda_id ||
-      a.demandaId ||
-      a.demanda_Id ||
-      a.id ||
-      a.ID ||
-      ""
-    ).trim();
+    // A API às vezes retorna "DemandaId " COM ESPAÇO NO FINAL
+    const rawDemandaId =
+      a["DemandaId "] ??
+      a.DemandaId ??
+      a.demanda_id ??
+      a.demandaId ??
+      a.demanda_Id ??
+      null;
+    const key = rawDemandaId != null ? normalizeId(rawDemandaId) : "";
 
     if (key) {
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(a);
+      if (!mapById.has(key)) mapById.set(key, []);
+      mapById.get(key).push(a);
+    } else {
+      semDemandaId++;
+    }
+  });
+
+  // Fallback por Nome Cliente quando DemandaId não está preenchido no backend
+  const normC = s => String(s || "").trim().toLowerCase();
+  const mapByCliente = new Map();
+  apontamentosList.forEach(a => {
+    const cliente = normC(a["Nome Cliente"] || a["Nome cliente"] || a.NomeCliente || a.cliente || "");
+    if (cliente) {
+      if (!mapByCliente.has(cliente)) mapByCliente.set(cliente, []);
+      mapByCliente.get(cliente).push(a);
     }
   });
 
   return tasksList.map(task => {
-    const taskId = String(task.id || task.ID || task["ID"] || "").trim();
-    if (map.has(taskId)) {
-      // Anexa a lista de apontamentos no objeto da tarefa
-      task._apontamentos = map.get(taskId);
+    const taskId = normalizeId(task.id ?? task.ID ?? task["ID"] ?? "");
+    if (mapById.has(taskId)) {
+      task._apontamentos = mapById.get(taskId);
+    } else if (semDemandaId > 0) {
+      // Fallback: match por Nome Cliente quando DemandaId é null no backend
+      const clienteTask = normC(task["Nome Cliente"] || task["Contato Cliente"] || task.cliente || "");
+      task._apontamentos = (clienteTask && mapByCliente.has(clienteTask))
+        ? mapByCliente.get(clienteTask)
+        : [];
     } else {
       task._apontamentos = [];
     }
@@ -1100,3 +1145,212 @@ function normalizeTasks(list) {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
+/* ==============================================
+   PAINEL DE PRAZOS — Lógica da Gaveta Lateral
+   ============================================== */
+
+/**
+ * Faz parse de datas no formato M/D/YYYY, DD/MM/YYYY ou ISO
+ * (A API pode retornar datas em formatos variados)
+ */
+function parseDateForPrazos(str) {
+  if (!str) return null;
+  const s = String(str).trim();
+
+  // Formato M/D/YYYY (usado no sample data: "1/19/2026")
+  const mdyMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mdyMatch) {
+    const [, m, d, y] = mdyMatch;
+    const date = new Date(Number(y), Number(m) - 1, Number(d));
+    if (!isNaN(date.getTime())) return date;
+  }
+
+  // Formato DD/MM/YYYY (usado pela API)
+  const dmyMatch = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (dmyMatch) {
+    const [, d, m, y] = dmyMatch;
+    const date = new Date(Number(y), Number(m) - 1, Number(d));
+    if (!isNaN(date.getTime())) return date;
+  }
+
+  // Fallback ISO
+  const iso = new Date(s);
+  if (!isNaN(iso.getTime())) return iso;
+
+  return null;
+}
+
+function formatDatePrazos(date) {
+  if (!date) return "—";
+  const d = String(date.getDate()).padStart(2, "0");
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const y = date.getFullYear();
+  return `${d}/${m}/${y}`;
+}
+
+function openPrazosDrawer() {
+  const overlay = document.getElementById("prazosOverlay");
+  const drawer = document.getElementById("prazosDrawer");
+  if (!overlay || !drawer) return;
+
+  // Renderiza dados atuais
+  renderPainelPrazos();
+
+  overlay.classList.add("open");
+  drawer.classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+function closePrazosDrawer() {
+  const overlay = document.getElementById("prazosOverlay");
+  const drawer = document.getElementById("prazosDrawer");
+  if (!overlay || !drawer) return;
+
+  overlay.classList.remove("open");
+  drawer.classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+function renderPainelPrazos() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const aIniciar = [];
+  const emAndamento = [];
+  const atrasados = [];
+
+  tasks.forEach(task => {
+    // Ignorar Concluídas e Canceladas
+    if (task.status === "Concluída" || task.status === "Cancelada") return;
+
+    const raw = task.raw || task;
+
+    // Datas
+    const startStr = safeStr(raw["Data Início (Previsão)"] || raw["Data Inicio (Previsao)"] || raw.dateStart || "");
+    const endStr = safeStr(raw["Data Conclusão (Previsão)"] || raw["Data Conclusao (Previsao)"] || raw.dateEnd || "");
+
+    const startDate = parseDateForPrazos(startStr) || parseDateForPrazos(task.dates?.start);
+    const endDate = parseDateForPrazos(endStr) || parseDateForPrazos(task.dates?.end);
+
+    const cliente = safeStr(
+      raw["Nome Cliente"] || raw["Contato Cliente"] || task.title || "Cliente não identificado"
+    );
+    const tipo = task.demandType || safeStr(raw["Tipo de Demanda"]) || "—";
+    const responsavel = task.responsible || "Sem responsável";
+
+    const entry = { cliente, tipo, responsavel, startDate, endDate, status: task.status };
+
+    if (endDate && endDate < today) {
+      // Prazo de conclusão já passou e não está concluído = ATRASADO
+      atrasados.push(entry);
+    } else if (task.status === "Em andamento") {
+      emAndamento.push(entry);
+    } else {
+      // Backlog / a fazer = A INICIAR
+      aIniciar.push(entry);
+    }
+  });
+
+  // Ordenar por data de início ascendente
+  const byStart = (a, b) => (a.startDate || new Date(9999, 0)) - (b.startDate || new Date(9999, 0));
+  aIniciar.sort(byStart);
+  emAndamento.sort(byStart);
+  atrasados.sort((a, b) => (a.endDate || new Date(0)) - (b.endDate || new Date(0)));
+
+  // Resumo Numérico
+  const summaryEl = document.getElementById("prazosSummaryRow");
+  if (summaryEl) {
+    summaryEl.innerHTML = `
+      <div class="prazos-summary-chip chip-start">
+        <span class="prazos-summary-num">${aIniciar.length}</span>
+        <span class="prazos-summary-lbl">A Iniciar</span>
+      </div>
+      <div class="prazos-summary-chip chip-ongoing">
+        <span class="prazos-summary-num">${emAndamento.length}</span>
+        <span class="prazos-summary-lbl">Em Andamento</span>
+      </div>
+      <div class="prazos-summary-chip chip-late">
+        <span class="prazos-summary-num">${atrasados.length}</span>
+        <span class="prazos-summary-lbl">Atrasados</span>
+      </div>
+    `;
+  }
+
+  // Contadores
+  const countStart = document.getElementById("countStart");
+  const countOngoing = document.getElementById("countOngoing");
+  const countLate = document.getElementById("countLate");
+  if (countStart) countStart.textContent = aIniciar.length;
+  if (countOngoing) countOngoing.textContent = emAndamento.length;
+  if (countLate) countLate.textContent = atrasados.length;
+
+  // Render das listas
+  renderPrazosCards("cardsStart", aIniciar, "start");
+  renderPrazosCards("cardsOngoing", emAndamento, "ongoing");
+  renderPrazosCards("cardsLate", atrasados, "late");
+}
+
+function renderPrazosCards(containerId, entries, category) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  if (entries.length === 0) {
+    const emptyMessages = {
+      start: "Nenhum projeto a iniciar",
+      ongoing: "Nenhum projeto em andamento",
+      late: "Nenhum projeto atrasado 🎉"
+    };
+    container.innerHTML = `<div class="prazos-empty">${emptyMessages[category] || "Sem dados"}</div>`;
+    return;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  container.innerHTML = entries.map(entry => {
+    const typeBadgeClass = `type-badge-${category}`;
+    const cardClass = `card-${category}`;
+    const isOverdue = category === "late";
+
+    const startStr = formatDatePrazos(entry.startDate);
+    const endStr = formatDatePrazos(entry.endDate);
+
+    return `
+      <div class="prazos-project-card ${cardClass}">
+        <div class="prazos-card-top">
+          <div class="prazos-card-client">${escapeHTML(entry.cliente)}</div>
+          <span class="prazos-card-type ${typeBadgeClass}">${escapeHTML(entry.tipo)}</span>
+        </div>
+        <div class="prazos-card-dates">
+          <div class="prazos-date-item">
+            <span class="prazos-date-label">Início</span>
+            <span class="prazos-date-value">${startStr}</span>
+          </div>
+          <span class="prazos-date-separator">→</span>
+          <div class="prazos-date-item">
+            <span class="prazos-date-label">Conclusão</span>
+            <span class="prazos-date-value ${isOverdue ? 'overdue' : ''}">${endStr}</span>
+          </div>
+        </div>
+        <div class="prazos-card-responsible">👤 ${escapeHTML(entry.responsavel)}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+// ---- Event Listeners para o Painel de Prazos ----
+document.addEventListener("DOMContentLoaded", () => {
+  const btnOpen = document.getElementById("btnPainelPrazos");
+  const btnClose = document.getElementById("btnClosePrazos");
+  const overlay = document.getElementById("prazosOverlay");
+
+  if (btnOpen) btnOpen.addEventListener("click", openPrazosDrawer);
+  if (btnClose) btnClose.addEventListener("click", closePrazosDrawer);
+  if (overlay) overlay.addEventListener("click", closePrazosDrawer);
+
+  // Fechar com tecla ESC
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closePrazosDrawer();
+  });
+});
