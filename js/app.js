@@ -170,6 +170,18 @@ function normalizeRow(row) {
     role: [...p.roles].join("/")
   }));
 
+  // Se não há apontamentos vinculados, usar campos diretos da demanda como fallback
+  if (participants.length === 0) {
+    const directFields = [
+      "Responsável Demanda", "Responsável Cyber",
+      "Responsável Intelidados", "Trainee do Projeto"
+    ];
+    directFields.forEach(field => {
+      const name = safeStr(row[field]);
+      if (name) participants.push({ name, hours: 0, role: "" });
+    });
+  }
+
   const responsible = participants.map(p => p.name).join(", ") || "Sem responsável";
   const hoursProject = Math.max(0, hoursTotal - hoursAdm - hoursTraining);
 
@@ -810,8 +822,14 @@ function populatePeopleDropdown() {
   const people = new Set();
   tasks.forEach(t => {
     if (t.responsible && t.responsible !== "Sem responsável") {
-      t.responsible.split(", ").forEach(p => people.add(p.trim()));
+      t.responsible.split(", ").forEach(p => { if (p.trim()) people.add(p.trim()); });
     }
+    // Também varrer campos diretos da demanda como fallback
+    const raw = t.raw || {};
+    ["Responsável Demanda", "Responsável Cyber", "Responsável Intelidados", "Trainee do Projeto"].forEach(f => {
+      const n = safeStr(raw[f]);
+      if (n) people.add(n.trim());
+    });
   });
 
   const sorted = [...people].sort((a, b) => a.localeCompare(b));
@@ -1036,11 +1054,13 @@ async function init() {
     if (cachedTasks) {
       tasks = normalizeTasks(cachedTasks);
       render();
-      setBanner("Aviso: Mostrando dados do cache local (API offline).", "info");
+      setBanner(`⚠️ API indisponível (${API_BASE_URL}) — exibindo cache local. Erro: ${e.message}`, "info");
     } else if (window.__PPC_SAMPLE__) {
       tasks = normalizeTasks(window.__PPC_SAMPLE__);
       render();
-      setBanner("Aviso: Mostrando dados de amostra.", "info");
+      setBanner(`⚠️ API indisponível (${API_BASE_URL}) — exibindo dados de amostra. Erro: ${e.message}`, "info");
+    } else {
+      setBanner(`❌ Sem dados: API offline (${API_BASE_URL}) e sem cache local. Erro: ${e.message}`, "info");
     }
   } finally {
     // Esconder o loader
@@ -1049,36 +1069,61 @@ async function init() {
   }
 }
 
+// Normaliza IDs para comparação robusta: "123.0" → "123", 123 → "123"
+function normalizeId(val) {
+  if (val == null || val === "") return "";
+  const s = String(val).trim();
+  const n = parseFloat(s);
+  return (!isNaN(n) && isFinite(n)) ? String(Math.round(n)) : s;
+}
+
 function mergeData(tasksList, apontamentosList) {
   if (!Array.isArray(tasksList)) return [];
   if (!Array.isArray(apontamentosList)) return tasksList;
 
-  // Criar mapa de apontamentos agrupados por ID da demanda
-  const map = new Map();
+  // Criar mapa de apontamentos agrupados pelo DemandaId (normalizado)
+  const mapById = new Map();
+  let semDemandaId = 0;
   apontamentosList.forEach(a => {
-    // CRÍTICO: A API às vezes retorna "DemandaId " COM ESPAÇO NO FINAL! (Sync com graphs.js)
-    const key = String(
-      a["DemandaId "] ||
-      a.DemandaId ||
-      a.demanda_id ||
-      a.demandaId ||
-      a.demanda_Id ||
-      a.id ||
-      a.ID ||
-      ""
-    ).trim();
+    // A API às vezes retorna "DemandaId " COM ESPAÇO NO FINAL
+    const rawDemandaId =
+      a["DemandaId "] ??
+      a.DemandaId ??
+      a.demanda_id ??
+      a.demandaId ??
+      a.demanda_Id ??
+      null;
+    const key = rawDemandaId != null ? normalizeId(rawDemandaId) : "";
 
     if (key) {
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(a);
+      if (!mapById.has(key)) mapById.set(key, []);
+      mapById.get(key).push(a);
+    } else {
+      semDemandaId++;
+    }
+  });
+
+  // Fallback por Nome Cliente quando DemandaId não está preenchido no backend
+  const normC = s => String(s || "").trim().toLowerCase();
+  const mapByCliente = new Map();
+  apontamentosList.forEach(a => {
+    const cliente = normC(a["Nome Cliente"] || a["Nome cliente"] || a.NomeCliente || a.cliente || "");
+    if (cliente) {
+      if (!mapByCliente.has(cliente)) mapByCliente.set(cliente, []);
+      mapByCliente.get(cliente).push(a);
     }
   });
 
   return tasksList.map(task => {
-    const taskId = String(task.id || task.ID || task["ID"] || "").trim();
-    if (map.has(taskId)) {
-      // Anexa a lista de apontamentos no objeto da tarefa
-      task._apontamentos = map.get(taskId);
+    const taskId = normalizeId(task.id ?? task.ID ?? task["ID"] ?? "");
+    if (mapById.has(taskId)) {
+      task._apontamentos = mapById.get(taskId);
+    } else if (semDemandaId > 0) {
+      // Fallback: match por Nome Cliente quando DemandaId é null no backend
+      const clienteTask = normC(task["Nome Cliente"] || task["Contato Cliente"] || task.cliente || "");
+      task._apontamentos = (clienteTask && mapByCliente.has(clienteTask))
+        ? mapByCliente.get(clienteTask)
+        : [];
     } else {
       task._apontamentos = [];
     }

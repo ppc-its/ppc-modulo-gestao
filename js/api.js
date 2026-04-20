@@ -6,15 +6,27 @@
 const API_BASE_URL = "http://127.0.0.1:5000";
 const LISTS_BASE_URL = `${API_BASE_URL}/lists`;
 
+// Extrai array de qualquer envelope JSON que a API possa retornar
+function _extractArray(data, ...keys) {
+    if (Array.isArray(data)) return data;
+    for (const k of keys) {
+        if (Array.isArray(data[k])) return data[k];
+    }
+    console.warn("[API] Resposta inesperada — não é array nem envelope conhecido:", Object.keys(data));
+    return [];
+}
+
 const api = {
     /* =========================
        DEMANDAS
        ========================= */
     async getTasks() {
         const resp = await fetch(`${LISTS_BASE_URL}/demandas`);
-        if (!resp.ok) throw new Error(`Erro na API: ${resp.status}`);
+        if (!resp.ok) throw new Error(`Erro na API demandas: ${resp.status}`);
         const data = await resp.json();
-        return Array.isArray(data) ? data : (data.tasks || []);
+        const list = _extractArray(data, "tasks", "demandas", "value", "items", "data", "results");
+        console.log(`[API] /lists/demandas → ${list.length} demandas. Campos da 1ª:`, list[0] ? Object.keys(list[0]) : "vazio");
+        return list;
     },
 
     async updateTask(id, updates) {
@@ -38,9 +50,11 @@ const api = {
        ========================= */
     async getApontamentos() {
         const resp = await fetch(`${LISTS_BASE_URL}/apontamentos`);
-        if (!resp.ok) throw new Error(`Erro na API: ${resp.status}`);
+        if (!resp.ok) throw new Error(`Erro na API apontamentos: ${resp.status}`);
         const data = await resp.json();
-        return Array.isArray(data) ? data : (data.apontamentos || []);
+        const list = _extractArray(data, "apontamentos", "tasks", "value", "items", "data", "results");
+        console.log(`[API] /lists/apontamentos → ${list.length} apontamentos. Campos do 1º:`, list[0] ? Object.keys(list[0]) : "vazio");
+        return list;
     },
 
     /* =========================
