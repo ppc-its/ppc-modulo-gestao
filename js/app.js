@@ -1242,12 +1242,16 @@ function renderPainelPrazos() {
     const entry = { cliente, tipo, responsavel, startDate, endDate, status: task.status };
 
     if (endDate && endDate < today) {
-      // Prazo de conclusão já passou e não está concluído = ATRASADO
+      // 1. Prazo de conclusão já passou = ATRASADO
+      atrasados.push(entry);
+    } else if (startDate && startDate < today && task.status !== "Em andamento") {
+      // 2. Data de início já passou mas não começou = ATRASADO (Início Atrasado)
       atrasados.push(entry);
     } else if (task.status === "Em andamento") {
+      // 3. Está em andamento e prazo de conclusão ok = EM ANDAMENTO
       emAndamento.push(entry);
     } else {
-      // Backlog / a fazer = A INICIAR
+      // 4. Backlog / Outros com data de início futura = A INICIAR
       aIniciar.push(entry);
     }
   });
