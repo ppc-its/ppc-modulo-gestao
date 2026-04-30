@@ -1,43 +1,34 @@
-/* =========================
-   PPC Task Board - Serviço de API
-   Centraliza todas as chamadas de fetch para o Backend Python/Flask
-   ========================= */
-
-const API_BASE_URL = "http://192.168.0.21:5000";
+const API_BASE_URL = "http://127.0.0.1:5000";
 const LISTS_BASE_URL = `${API_BASE_URL}/lists`;
 
-// Extrai array de qualquer envelope JSON que a API possa retornar
+function _authHeaders() {
+    const token = (typeof Auth !== 'undefined') ? Auth.getToken() : null;
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
 function _extractArray(data, ...keys) {
     if (Array.isArray(data)) return data;
     for (const k of keys) {
         if (Array.isArray(data[k])) return data[k];
     }
-    console.warn("[API] Resposta inesperada — não é array nem envelope conhecido:", Object.keys(data));
     return [];
 }
 
 const api = {
-    /* =========================
-       DEMANDAS
-       ========================= */
     async getTasks() {
-        const resp = await fetch(`${LISTS_BASE_URL}/demandas`);
+        const resp = await fetch(`${LISTS_BASE_URL}/demandas`, { headers: _authHeaders() });
         if (!resp.ok) throw new Error(`Erro na API demandas: ${resp.status}`);
         const data = await resp.json();
-        const list = _extractArray(data, "tasks", "demandas", "value", "items", "data", "results");
-        console.log(`[API] /lists/demandas → ${list.length} demandas. Campos da 1ª:`, list[0] ? Object.keys(list[0]) : "vazio");
-        return list;
+        return _extractArray(data, "tasks", "demandas", "value", "items", "data", "results");
     },
 
     async updateTask(id, updates) {
         const payload = {};
-        if (updates.status !== undefined) {
-            payload["Status"] = updates.status;
-        }
+        if (updates.status !== undefined) payload["Status"] = updates.status;
 
         const resp = await fetch(`${LISTS_BASE_URL}/demanda/${id}`, {
             method: "PATCH",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ..._authHeaders() },
             body: JSON.stringify(payload)
         });
 
@@ -45,52 +36,29 @@ const api = {
         return resp.json();
     },
 
-    /* =========================
-       APONTAMENTOS
-       ========================= */
     async getApontamentos() {
-        const resp = await fetch(`${LISTS_BASE_URL}/apontamentos`);
+        const resp = await fetch(`${LISTS_BASE_URL}/apontamentos`, { headers: _authHeaders() });
         if (!resp.ok) throw new Error(`Erro na API apontamentos: ${resp.status}`);
         const data = await resp.json();
-        const list = _extractArray(data, "apontamentos", "tasks", "value", "items", "data", "results");
-        console.log(`[API] /lists/apontamentos → ${list.length} apontamentos. Campos do 1º:`, list[0] ? Object.keys(list[0]) : "vazio");
-        return list;
+        return _extractArray(data, "apontamentos", "tasks", "value", "items", "data", "results");
     },
-
-    /* =========================
-       CHECKLIST
-       ========================= */
-
-    /* =========================
-       CHECKLIST (Versão Corrigida)
-       ========================= */
 
     async getChecklist(demandaId) {
         const cleanId = String(demandaId).replace(/\D/g, '');
-
         if (!cleanId) throw new Error("ID da demanda inválido");
 
-        const resp = await fetch(`${LISTS_BASE_URL}/checklist/${cleanId}`);
-
-        if (!resp.ok) {
-            console.error(`Erro ao buscar checklist ${cleanId}: Status ${resp.status}`);
-            throw new Error("Falha ao carregar checklist");
-        }
+        const resp = await fetch(`${LISTS_BASE_URL}/checklist/${cleanId}`, { headers: _authHeaders() });
+        if (!resp.ok) throw new Error("Falha ao carregar checklist");
         return resp.json();
     },
 
     async createChecklistItem(demandaId, texto) {
         const cleanId = String(demandaId).replace(/\D/g, '');
-
-        const resp = await fetch(`${LISTS_BASE_URL}/checklist/`, { // Verifique se precisa da / final
+        const resp = await fetch(`${LISTS_BASE_URL}/checklist/`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                demanda_id: Number(cleanId),
-                tarefas: [texto]
-            })
+            headers: { "Content-Type": "application/json", ..._authHeaders() },
+            body: JSON.stringify({ demanda_id: Number(cleanId), tarefas: [texto] })
         });
-
         if (!resp.ok) throw new Error("Erro ao criar item do checklist");
         return resp.json();
     },
@@ -98,10 +66,9 @@ const api = {
     async updateChecklistTitle(itemId, titulo) {
         const resp = await fetch(`${LISTS_BASE_URL}/checklist/${itemId}`, {
             method: "PATCH",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ..._authHeaders() },
             body: JSON.stringify({ titulo })
         });
-
         if (!resp.ok) throw new Error("Erro ao atualizar título do checklist");
         return resp.json();
     },
@@ -109,10 +76,9 @@ const api = {
     async updateChecklistStatus(itemId, concluido) {
         const resp = await fetch(`${LISTS_BASE_URL}/checklist/${itemId}`, {
             method: "PATCH",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ..._authHeaders() },
             body: JSON.stringify({ concluido })
         });
-
         if (!resp.ok) throw new Error("Erro ao atualizar status do checklist");
         return resp.json();
     },
@@ -120,50 +86,21 @@ const api = {
     async updateChecklistDate(itemId, Data) {
         const resp = await fetch(`${LISTS_BASE_URL}/checklist/${itemId}`, {
             method: "PATCH",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ..._authHeaders() },
             body: JSON.stringify({ Data })
         });
-
         if (!resp.ok) throw new Error("Erro ao atualizar data do checklist");
         return resp.json();
     },
 
     async deleteChecklistItem(itemId) {
         const resp = await fetch(`${LISTS_BASE_URL}/checklist/delet/${itemId}`, {
-            method: "DELETE"
+            method: "DELETE",
+            headers: _authHeaders(),
         });
-
         if (!resp.ok) throw new Error("Erro ao excluir item do checklist");
         return resp.json();
     }
 };
 
-// Expor globalmente
 window.api = api;
-
-
-/* =========================
-   INICIALIZAÇÃO AUTOMÁTICA
-   Aciona as APIs ao carregar a página
-   ========================= */
-
-async function initApp() {
-    console.log("Iniciando carregamento de dados...");
-    try {
-        // Promise.all executa ambas as chamadas simultaneamente
-        const [tarefas, apontamentos] = await Promise.all([
-            api.getTasks(),
-            api.getApontamentos()
-        ]);
-
-        console.log("✅ Tarefas carregadas:", tarefas);
-        console.log("✅ Apontamentos carregados:", apontamentos);
-
-    } catch (error) {
-        console.error("❌ Erro na inicialização:", error);
-        alert("Não foi possível conectar ao servidor Flask.");
-    }
-}
-
-// Escuta o evento de carregamento do DOM para rodar a função
-document.addEventListener("DOMContentLoaded", initApp);

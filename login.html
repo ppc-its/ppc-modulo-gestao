@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PPeC • Acesso</title>
+    <link rel="icon" href="assets/logo.png" />
+    <link rel="stylesheet" href="css/login.css" />
+
+    <!-- Redireciona imediatamente se já autenticado, antes do paint -->
+    <script src="js/auth.js"></script>
+    <script>
+        (function () {
+            if (Auth.isAuthenticated()) {
+                const p = new URLSearchParams(window.location.search);
+                window.location.replace(p.get('redirect') || 'index.html');
+            }
+        })();
+    </script>
+</head>
+
+<body>
+    <div class="page">
+
+        <!-- Painel da Marca -->
+        <div class="brand-panel">
+            <div class="brand-inner">
+                <img src="assets/logo.png" alt="PP&C Auditores" class="brand-logo" />
+                <div class="brand-rule"></div>
+                <span class="brand-label">Módulo de Gestão</span>
+            </div>
+            <div class="brand-footer">PP&amp;C Auditores Independentes &middot; 2026</div>
+        </div>
+
+        <!-- Painel do Formulário -->
+        <div class="form-panel">
+            <div class="form-card">
+
+                <div class="form-header">
+                    <h1>Acesso ao Sistema</h1>
+                    <p>Entre com suas credenciais para continuar.</p>
+                </div>
+
+                <form id="loginForm" novalidate>
+
+                    <div class="field">
+                        <label for="email">E-mail</label>
+                        <input
+                            type="email"
+                            id="email"
+                            name="email"
+                            placeholder="seu@email.com.br"
+                            autocomplete="email"
+                            inputmode="email"
+                        />
+                    </div>
+
+                    <div class="field">
+                        <label for="password">Senha</label>
+                        <div class="password-wrapper">
+                            <input
+                                type="password"
+                                id="password"
+                                name="password"
+                                placeholder="••••••••"
+                                autocomplete="current-password"
+                            />
+                            <button type="button" class="eye-toggle" id="eyeToggle" aria-label="Mostrar senha" tabindex="-1">
+                                <!-- eye-open (padrão) -->
+                                <svg id="iconEyeOpen" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                    <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                                <!-- eye-off (escondido por padrão) -->
+                                <svg id="iconEyeOff" class="hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                                    <line x1="1" y1="1" x2="23" y2="23"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="form-error" id="formError" role="alert" aria-live="polite"></div>
+
+                    <button type="submit" class="btn-submit" id="btnSubmit">
+                        <span id="btnText">Entrar</span>
+                        <span id="btnSpinner" class="btn-spinner hidden"></span>
+                    </button>
+
+                </form>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const form       = document.getElementById('loginForm');
+        const emailInput = document.getElementById('email');
+        const passInput  = document.getElementById('password');
+        const formError  = document.getElementById('formError');
+        const btnSubmit  = document.getElementById('btnSubmit');
+        const btnText    = document.getElementById('btnText');
+        const btnSpinner = document.getElementById('btnSpinner');
+        const eyeToggle  = document.getElementById('eyeToggle');
+        const iconOpen   = document.getElementById('iconEyeOpen');
+        const iconOff    = document.getElementById('iconEyeOff');
+
+        // Roles com acesso restrito a páginas específicas
+        const _restricted = {
+            'graphs.html': ['admin'],
+        };
+
+        eyeToggle.addEventListener('click', () => {
+            const isPass = passInput.type === 'password';
+            passInput.type = isPass ? 'text' : 'password';
+            iconOpen.classList.toggle('hidden', isPass);
+            iconOff.classList.toggle('hidden', !isPass);
+            eyeToggle.setAttribute('aria-label', isPass ? 'Ocultar senha' : 'Mostrar senha');
+        });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const email    = emailInput.value.trim();
+            const password = passInput.value;
+
+            clearError();
+
+            if (!email || !password) {
+                showError('Preencha e-mail e senha.');
+                (!email ? emailInput : passInput).focus();
+                return;
+            }
+
+            setLoading(true);
+
+            try {
+                const user = await Auth.login(email, password);
+
+                const params   = new URLSearchParams(window.location.search);
+                const redirect = params.get('redirect') || 'index.html';
+
+                const roles = _restricted[redirect];
+                const allowed = !roles || roles.includes(user.role);
+
+                window.location.href = allowed ? redirect : 'index.html';
+            } catch (err) {
+                showError(err.message);
+                setLoading(false);
+                passInput.value = '';
+                passInput.classList.add('has-error');
+                passInput.focus();
+            }
+        });
+
+        passInput.addEventListener('input', () => {
+            passInput.classList.remove('has-error');
+            clearError();
+        });
+
+        function setLoading(on) {
+            btnSubmit.disabled = on;
+            btnText.classList.toggle('hidden', on);
+            btnSpinner.classList.toggle('hidden', !on);
+        }
+
+        function showError(msg) {
+            formError.textContent = msg;
+        }
+
+        function clearError() {
+            formError.textContent = '';
+        }
+    </script>
+</body>
+
+</html>

@@ -1,7 +1,3 @@
-/* =========================
-   PPC Task Board - checklist.js
-   ========================= */
-
 function renderChecklist(task, container) {
   if (!task.checklist) task.checklist = [];
 
@@ -35,26 +31,20 @@ function renderChecklist(task, container) {
       </button>
     `;
 
-    const deleteBtn = itemEl.querySelector(".checklist-delete");
-    deleteBtn.addEventListener("click", async () => {
+    itemEl.querySelector(".checklist-delete").addEventListener("click", async () => {
       const confirmed = await showDeleteConfirm(item.text);
-      if (confirmed) {
-        try {
-          // Adiciona opacidade para indicar loading visual
-          itemEl.style.opacity = "0.5";
-          itemEl.style.pointerEvents = "none";
-          
-          await api.deleteChecklistItem(item.id);
-          
-          // Remove o item da memória e re-renderiza sem recarregar tudo p/ melhor UX
-          task.checklist = task.checklist.filter(i => i.id !== item.id);
-          renderChecklist(task, container);
-        } catch (err) {
-          console.error("Erro ao excluir", err);
-          itemEl.style.opacity = "1";
-          itemEl.style.pointerEvents = "auto";
-          alert("Não foi possível excluir o item do checklist.");
-        }
+      if (!confirmed) return;
+
+      try {
+        itemEl.style.opacity = "0.5";
+        itemEl.style.pointerEvents = "none";
+        await api.deleteChecklistItem(item.id);
+        task.checklist = task.checklist.filter(i => i.id !== item.id);
+        renderChecklist(task, container);
+      } catch (err) {
+        itemEl.style.opacity = "1";
+        itemEl.style.pointerEvents = "auto";
+        alert("Não foi possível excluir o item do checklist.");
       }
     });
 
@@ -81,9 +71,7 @@ function renderChecklist(task, container) {
         item.date = novaData;
         try {
           await api.updateChecklistDate(item.id, novaData);
-        } catch (err) {
-          console.error("Erro ao salvar data", err);
-        }
+        } catch (_) {}
       }
     });
 
@@ -93,11 +81,7 @@ function renderChecklist(task, container) {
   const addInput = container.querySelector(".checklist-add-input");
   addInput.addEventListener("keydown", async (e) => {
     if (e.key === "Enter" && addInput.value.trim()) {
-      const texto = addInput.value.trim();
-
-      await api.createChecklistItem(task.id, texto);
-
-      // Recarrega do backend para pegar o ID real
+      await api.createChecklistItem(task.id, addInput.value.trim());
       task.checklist = await loadChecklistFromAPI(task.id);
       renderChecklist(task, container);
     }
@@ -107,36 +91,26 @@ function renderChecklist(task, container) {
 async function loadChecklistFromAPI(demandaId) {
   try {
     const data = await api.getChecklist(demandaId);
-
     return data.tarefas.map(item => ({
       id: item.id,
       text: item.titulo,
       done: item.concluido === true,
-      date: item.Data || item.data || "" 
+      date: item.Data || item.data || ""
     }));
-  } catch (error) {
-    console.error("Erro ao buscar checklist:", error);
+  } catch (_) {
     return [];
   }
 }
 
 function formatDateForInput(dateString) {
   if (!dateString) return "";
-
-  // "06/04/2026 03:00"
   const [datePart] = dateString.split(" ");
   const [dia, mes, ano] = datePart.split("/");
-
   return `${ano}-${mes}-${dia}`;
 }
 
-/**
- * Exibe um modal de confirmação elegante antes de excluir um item do checklist.
- * Retorna uma Promise<boolean>.
- */
 function showDeleteConfirm(itemText) {
   return new Promise((resolve) => {
-    // Remove modal anterior se existir
     const existing = document.getElementById('checklist-confirm-modal');
     if (existing) existing.remove();
 
@@ -165,8 +139,6 @@ function showDeleteConfirm(itemText) {
     `;
 
     document.body.appendChild(backdrop);
-
-    // Anima entrada
     requestAnimationFrame(() => backdrop.classList.add('cl-confirm-visible'));
 
     const close = (result) => {
@@ -179,24 +151,9 @@ function showDeleteConfirm(itemText) {
     backdrop.querySelector('.cl-btn-cancel').addEventListener('click', () => close(false));
     backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(false); });
 
-    // Fechar com Esc
-    const onKey = (e) => { if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); close(false); } };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); close(false); }
+    };
     document.addEventListener('keydown', onKey);
   });
-}
-
-async function saveChecklist(task) {
-  if (typeof saveToLocalStorage === "function") {
-    saveToLocalStorage(tasks);
-  }
-
-  try {
-    for (const item of task.checklist) {
-      await api.createChecklistItem(task.id, item.text);
-    }
-
-    console.log(`Checklist da demanda ${task.id} sincronizado com sucesso.`);
-  } catch (error) {
-    console.error("Erro ao salvar checklist na API:", error);
-  }
 }

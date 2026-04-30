@@ -1,28 +1,21 @@
-/* =========================
-   PPC Task Board - app.js
-   Vanilla JS (sem necessidade de build)
-   ========================= */
-
 const STATUS_ORDER = [
-  { key: "Backlog", label: "Backlog" },
+  { key: "Backlog",      label: "Backlog"      },
   { key: "Em andamento", label: "Em Andamento" },
-  { key: "Concluída", label: "Concluída" },
-  { key: "Cancelada", label: "Cancelada" },
+  { key: "Concluída",    label: "Concluída"    },
+  { key: "Cancelada",    label: "Cancelada"    },
 ];
 
 const TYPE_ORDER = [
-  { key: "INTELIDADOS", label: "INTELIDADOS" },
-  { key: "CYBER", label: "CYBER" },
+  { key: "INTELIDADOS",  label: "INTELIDADOS"  },
+  { key: "CYBER",        label: "CYBER"        },
   { key: "AUDITORIA TI", label: "AUDITORIA TI" },
-  { key: "CONSUL. TI", label: "CONSUL. TI" },
-  { key: "DEMANDA INT.", label: "DEMANDA INT." },
-  { key: "OUTROS", label: "OUTROS" },
+  { key: "CONSUL. TI",   label: "CONSUL. TI"   },
+  { key: "DEMANDA INT.", label: "DEMANDA INT."  },
+  { key: "OUTROS",       label: "OUTROS"       },
 ];
 
-const LOCAL_STORAGE_KEY = "ppc_task_board_data_v1";
-const LOCAL_FILTERS_KEY = "ppc_task_board_filters_v1";
-// const LOCAL_CSV1_KEY = "ppc_csv1_data_v1";
-// const LOCAL_CSV2_KEY = "ppc_csv2_data_v1";
+const LOCAL_STORAGE_KEY  = "ppc_task_board_data_v1";
+const LOCAL_FILTERS_KEY  = "ppc_task_board_filters_v1";
 
 function $(sel, el = document) { return el.querySelector(sel); }
 function $$(sel, el = document) { return [...el.querySelectorAll(sel)]; }
@@ -46,120 +39,82 @@ function initials(name) {
 function normalizeStatus(raw) {
   const s = safeStr(raw).toLowerCase();
 
-  // "Em Avaliação" (Agrupado no Backlog)
   if (["em avaliação", "em avaliacao", "avaliacao", "avaliação", "analise", "análise"].includes(s)) return "Backlog";
-
-  // "Backlog"
   if (["backlog", "to do", "todo", "a fazer", "fila"].includes(s)) return "Backlog";
-
-  // "Em andamento" (incluindo bloqueado/testando para não perder tarefas)
   if (["em andamento", "andamento", "doing", "in progress", "progresso", "fazendo", "execução"].includes(s)) return "Em andamento";
-  if (["bloqueado", "blocked", "impedido"].includes(s)) return "Em andamento"; // Mapeando bloqueado para fazendo
-  if (["teste", "testing", "qa", "homologação", "homologacao", "revisão"].includes(s)) return "Em andamento"; // Mapeando testes para fazendo
-
-  // "Concluída"
+  if (["bloqueado", "blocked", "impedido"].includes(s)) return "Em andamento";
+  if (["teste", "testing", "qa", "homologação", "homologacao", "revisão"].includes(s)) return "Em andamento";
   if (["concluído", "concluido", "done", "finalizado", "entregue", "concluída", "concluida"].includes(s)) return "Concluída";
-
-  // "Cancelada"
   if (["cancelado", "dismissed", "descartado", "cancelada"].includes(s)) return "Cancelada";
 
-  // Fallback padrão
   return "Backlog";
 }
 
 function detectDemandType(row) {
-  // O CSV tem múltiplas "colunas de tipo". Vamos inferir o tipo de demanda:
-  // Prioridade: Intelidados, Cybersecurity, Auditoria TI, Consultoria de TI, Demanda Interna (PPeC), Outros
-  const intel = safeStr(row["Intelidados"]);
-  const cyber = safeStr(row["Cybersecurity"]);
-  const audit = safeStr(row["Auditoria TI"]);
+  const intel  = safeStr(row["Intelidados"]);
+  const cyber  = safeStr(row["Cybersecurity"]);
+  const audit  = safeStr(row["Auditoria TI"]);
   const consul = safeStr(row["Consultoria de TI"]);
   const intern = safeStr(row["Demanda Interna (PPeC)"]);
   const outros = safeStr(row["Outros"]);
 
-  if (intel) return "INTELIDADOS";
-  if (cyber) return "CYBER";
-  if (audit) return "AUDITORIA TI";
+  if (intel)  return "INTELIDADOS";
+  if (cyber)  return "CYBER";
+  if (audit)  return "AUDITORIA TI";
   if (consul) return "CONSUL. TI";
   if (intern) return "DEMANDA INT.";
   if (outros) return "OUTROS";
 
-  // fallback por "Tipo de Demanda"
   const td = safeStr(row["Tipo de Demanda"]).toLowerCase();
-  if (td.includes("intel")) return "INTELIDADOS";
-  if (td.includes("cyber")) return "CYBER";
-  if (td.includes("aud")) return "AUDITORIA TI";
-  if (td.includes("consul")) return "CONSUL. TI";
+  if (td.includes("intel"))                         return "INTELIDADOS";
+  if (td.includes("cyber"))                         return "CYBER";
+  if (td.includes("aud"))                           return "AUDITORIA TI";
+  if (td.includes("consul"))                        return "CONSUL. TI";
   if (td.includes("interna") || td.includes("ppc")) return "DEMANDA INT.";
   return "OUTROS";
 }
 
+function _apontamentoHours(a) {
+  return toNumber(a.Horas || a.horas || a.HORAS || a.Hora || a.hora || 0);
+}
+
+function _apontamentoTipo(a) {
+  return safeStr(a["Tipo da hora"] || a.tipo_hora || a.TipoDaHora || a.TipoHora || a.tipo || "").toLowerCase();
+}
+
+function _apontamentoNome(a) {
+  return safeStr(
+    a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador ||
+    a.NomeColaborador || a.Colaborador || a.colaborador || a.nome || a.Nome || ""
+  );
+}
+
+function _apontamentoRole(a) {
+  return safeStr(a.Responsabilidades || a.responsabilidade || a.responsabilidades || a.Responsabilidade || a.papel || a.Papel || "");
+}
+
 function normalizeRow(row) {
   const demandType = detectDemandType(row);
-  const status = normalizeStatus(row["Status"]);
-
+  const status     = normalizeStatus(row["Status"]);
   const apontamentos = row._apontamentos || [];
 
-  let hoursTotal = 0;
-  let hoursAdm = 0;
-  let hoursTraining = 0; // Novo
+  let hoursTotal = 0, hoursAdm = 0, hoursTraining = 0;
   const participantsMap = new Map();
 
   apontamentos.forEach(a => {
-    // Tentar múltiplas variações do campo de horas (baseado em graphs.js)
-    const h = toNumber(
-      a.Horas ||
-      a.horas ||
-      a.HORAS ||
-      a.Hora ||
-      a.hora ||
-      0
-    );
+    const h    = _apontamentoHours(a);
+    const tipo = _apontamentoTipo(a);
+    const name = _apontamentoNome(a);
+
     hoursTotal += h;
-
-    // Tentar múltiplas variações do campo tipo
-    const tipo = safeStr(
-      a["Tipo da hora"] ||
-      a.tipo_hora ||
-      a.TipoDaHora ||
-      a.TipoHora ||
-      a.tipo ||
-      ""
-    ).toLowerCase();
-
-    if (tipo.includes("adm")) hoursAdm += h;
+    if (tipo.includes("adm"))        hoursAdm += h;
     else if (tipo.includes("treinamento")) hoursTraining += h;
 
-    // Tentar múltiplas variações do campo nome do colaborador
-    const name = safeStr(
-      a["Nome colaborador"] ||
-      a["Nome Colaborador"] ||
-      a.nome_colaborador ||
-      a.NomeColaborador ||
-      a.Colaborador ||
-      a.colaborador ||
-      a.nome ||
-      a.Nome ||
-      ""
-    );
-
     if (name) {
-      if (!participantsMap.has(name)) {
-        participantsMap.set(name, { name, hours: 0, roles: new Set() });
-      }
+      if (!participantsMap.has(name)) participantsMap.set(name, { name, hours: 0, roles: new Set() });
       const p = participantsMap.get(name);
       p.hours += h;
-
-      // Tentar múltiplas variações do campo responsabilidades
-      const role = safeStr(
-        a.Responsabilidades ||
-        a.responsabilidade ||
-        a.responsabilidades ||
-        a.Responsabilidade ||
-        a.papel ||
-        a.Papel ||
-        ""
-      );
+      const role = _apontamentoRole(a);
       if (role) p.roles.add(role);
     }
   });
@@ -170,35 +125,23 @@ function normalizeRow(row) {
     role: [...p.roles].join("/")
   }));
 
-  // Se não há apontamentos vinculados, usar campos diretos da demanda como fallback
   if (participants.length === 0) {
-    const directFields = [
-      "Responsável Demanda", "Responsável Cyber",
-      "Responsável Intelidados", "Trainee do Projeto"
-    ];
-    directFields.forEach(field => {
+    ["Responsável Demanda", "Responsável Cyber", "Responsável Intelidados", "Trainee do Projeto"].forEach(field => {
       const name = safeStr(row[field]);
       if (name) participants.push({ name, hours: 0, role: "" });
     });
   }
 
-  const responsible = participants.map(p => p.name).join(", ") || "Sem responsável";
+  const responsible  = participants.map(p => p.name).join(", ") || "Sem responsável";
   const hoursProject = Math.max(0, hoursTotal - hoursAdm - hoursTraining);
-
-  const client = safeStr(row["Nome Cliente"]) || safeStr(row["Contato Cliente"]) || "";
-
-  const scopeSystem = safeStr(row["Sistema em Escopo"]);
-  const prpId = safeStr(row["ID - PRP (RentSoft)"]);
-
-  const titleDetail = scopeSystem ? scopeSystem : (safeStr(row["Detalhe da demanda (Escopo)"]).slice(0, 48) || prpId || "Demanda");
-
-  const start = safeStr(row["Data Início (Previsão)"]);
-  const end = safeStr(row["Data Conclusão (Previsão)"]);
-
-  const id = safeStr(row["id"]) || prpId || crypto.randomUUID();
+  const client       = safeStr(row["Nome Cliente"]) || safeStr(row["Contato Cliente"]) || "";
+  const scopeSystem  = safeStr(row["Sistema em Escopo"]);
+  const prpId        = safeStr(row["ID - PRP (RentSoft)"]);
+  const titleDetail  = scopeSystem || safeStr(row["Detalhe da demanda (Escopo)"]).slice(0, 48) || prpId || "Demanda";
+  const id           = safeStr(row["id"]) || prpId || crypto.randomUUID();
 
   return {
-    id: id,
+    id,
     demandType,
     status,
     title: client || safeStr(row["Área Solicitante"]) || "Cliente não identificado",
@@ -210,57 +153,40 @@ function normalizeRow(row) {
     responsible,
     participants,
     raw: row,
-    dates: { start, end }
+    dates: {
+      start: safeStr(row["Data Início (Previsão)"]),
+      end:   safeStr(row["Data Conclusão (Previsão)"])
+    }
   };
 }
 
-/**
- * Retorna uma "visão filtrada" da task, recalculando horas
- * apenas para os apontamentos do responsável selecionado.
- * Se não houver filtro de pessoa, retorna a task original.
- */
 function getFilteredView(task, personFilter) {
   if (!personFilter) return task;
 
   const p = personFilter.toLowerCase();
-
-  // Filtrar apenas apontamentos do responsável selecionado
   const allApontamentos = task._apontamentos || task.raw?._apontamentos || [];
-  const filteredApontamentos = allApontamentos.filter(a => {
-    const name = safeStr(
-      a["Nome colaborador"] ||
-      a["Nome Colaborador"] ||
-      a.nome_colaborador ||
-      a.NomeColaborador ||
-      a.Colaborador ||
-      a.colaborador ||
-      a.nome ||
-      a.Nome ||
-      ""
-    ).toLowerCase();
+  const filtered = allApontamentos.filter(a => {
+    const name = _apontamentoNome(a).toLowerCase();
     return name.includes(p) || p.includes(name);
   });
 
-  // Recalcular horas apenas para esse responsável
   let hoursTotal = 0, hoursAdm = 0, hoursTraining = 0;
   const participantsMap = new Map();
 
-  filteredApontamentos.forEach(a => {
-    const h = toNumber(a.Horas || a.horas || a.HORAS || a.Hora || a.hora || 0);
+  filtered.forEach(a => {
+    const h    = _apontamentoHours(a);
+    const tipo = _apontamentoTipo(a);
+    const name = _apontamentoNome(a);
+
     hoursTotal += h;
-    const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora || "").toLowerCase();
-    if (tipo.includes("adm")) hoursAdm += h;
+    if (tipo.includes("adm"))              hoursAdm += h;
     else if (tipo.includes("treinamento")) hoursTraining += h;
 
-    const name = safeStr(
-      a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador ||
-      a.NomeColaborador || a.Colaborador || a.colaborador || a.nome || a.Nome || ""
-    );
     if (name) {
       if (!participantsMap.has(name)) participantsMap.set(name, { name, hours: 0, roles: new Set() });
       const pp = participantsMap.get(name);
       pp.hours += h;
-      const role = safeStr(a.Responsabilidades || a.responsabilidade || a.responsabilidades || a.Responsabilidade || "");
+      const role = _apontamentoRole(a);
       if (role) pp.roles.add(role);
     }
   });
@@ -279,44 +205,32 @@ function getFilteredView(task, personFilter) {
     hoursProject: Math.max(0, hoursTotal - hoursAdm - hoursTraining),
     participants,
     responsible: participants.map(pp => pp.name).join(", ") || task.responsible,
-    _filteredApontamentos: filteredApontamentos,
+    _filteredApontamentos: filtered,
   };
 }
 
-// Funções de parseCSV REMOVIDAS (não mais utilizadas no front)
-
-/* -------- Estado -------- */
 let tasks = [];
-/*
-let csv1Data = null; // CSV Principal (com coluna ID)
-let csv2Data = null; // CSV Complementar (com coluna DemandaId)
-*/
-let filters = {
-  person: "",
-  demandType: "",
-  query: "",
-};
+let filters = { person: "", demandType: "", query: "" };
 
 function loadFilters() {
   try {
     const raw = localStorage.getItem(LOCAL_FILTERS_KEY);
     if (!raw) return;
-    const f = JSON.parse(raw);
-    filters = { ...filters, ...f };
-  } catch (_) { }
+    filters = { ...filters, ...JSON.parse(raw) };
+  } catch (_) {}
 }
+
 function saveFilters() {
   localStorage.setItem(LOCAL_FILTERS_KEY, JSON.stringify(filters));
 }
 
-/* -------- Arrastar e Soltar -------- */
 function handleDragStart(e, task) {
   e.dataTransfer.setData("text/plain", task.id);
   e.dataTransfer.effectAllowed = "move";
 }
 
 function handleDragOver(e) {
-  e.preventDefault(); // Necessário para permitir soltar
+  e.preventDefault();
   e.dataTransfer.dropEffect = "move";
   e.currentTarget.classList.add("drag-over");
 }
@@ -329,116 +243,69 @@ function handleDrop(e, targetStatusKey) {
   e.preventDefault();
   e.currentTarget.classList.remove("drag-over");
 
-  const id = e.dataTransfer.getData("text/plain");
+  const id   = e.dataTransfer.getData("text/plain");
   const task = tasks.find(t => t.id === id);
+  if (!task || task.status === targetStatusKey) return;
 
-  if (task && task.status !== targetStatusKey) {
-    // Atualização Otimista
-    const oldStatus = task.status;
-    task.status = targetStatusKey;
-    render();
+  const oldStatus = task.status;
+  task.status = targetStatusKey;
+  render();
 
-    // Chamar API
-    api.updateTask(id, { status: targetStatusKey })
-      .then(updated => {
-        // Confirmar atualização da resposta do servidor se necessário
-        console.log("Task updated:", updated);
-        // Atualizar meta tempo de atualização se servidor retornar, ou apenas agora
-        setUpdatedMeta(new Date().toISOString());
-        // Sincronizar com LS para que gráficos sejam atualizados
-        saveToLocalStorage(tasks);
-      })
-      .catch(err => {
-        console.error("Failed to update status, reverting", err);
-        // Reverter
-        task.status = oldStatus;
-        saveToLocalStorage(tasks); // Sincronizar reversão
-        render();
-        alert("Erro ao atualizar status. Verifique o console.");
-      });
-  }
+  api.updateTask(id, { status: targetStatusKey })
+    .then(() => {
+      setUpdatedMeta(new Date().toISOString());
+      saveToLocalStorage(tasks);
+    })
+    .catch(() => {
+      task.status = oldStatus;
+      saveToLocalStorage(tasks);
+      render();
+      alert("Erro ao atualizar status. Verifique o console.");
+    });
 }
 
-/* -------- UI -------- */
+function _matchesPerson(t, p) {
+  const allApontamentos = t._apontamentos || t.raw?._apontamentos || [];
+  if (allApontamentos.length > 0) {
+    return allApontamentos.some(a => {
+      const name = _apontamentoNome(a).toLowerCase();
+      return name.includes(p) || p.includes(name);
+    });
+  }
+  return t.responsible.toLowerCase().includes(p) || p.includes(t.responsible.toLowerCase());
+}
+
+function _matchesQuery(t, q) {
+  const blob = [
+    t.title, t.subtitle, t.responsible,
+    t.raw?.["Detalhe da demanda (Escopo)"],
+    t.raw?.["Sistema em Escopo"],
+    t.raw?.["Nome Cliente"],
+    t.raw?.["ID - PRP (RentSoft)"],
+    t.raw?.["IDPlanner"]
+  ].map(safeStr).join(" ").toLowerCase();
+  return blob.includes(q);
+}
+
 function render() {
-  // Calcular filtrados
+  const p = filters.person ? filters.person.toLowerCase() : null;
+  const q = filters.query  ? filters.query.toLowerCase()  : null;
+
   const filtered = tasks
     .filter(t => {
-      if (filters.person) {
-        // Verificar se o responsável está nos apontamentos da demanda
-        const p = filters.person.toLowerCase();
-        const allApontamentos = t._apontamentos || t.raw?._apontamentos || [];
-        if (allApontamentos.length > 0) {
-          // Filtrar por apontamentos quando disponíveis (mais preciso)
-          const hasMatch = allApontamentos.some(a => {
-            const name = safeStr(
-              a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador ||
-              a.NomeColaborador || a.Colaborador || a.colaborador || a.nome || a.Nome || ""
-            ).toLowerCase();
-            return name.includes(p) || p.includes(name);
-          });
-          if (!hasMatch) return false;
-        } else {
-          // Fallback: verificar pelo campo responsible
-          if (!t.responsible.toLowerCase().includes(p) && !p.includes(t.responsible.toLowerCase())) return false;
-        }
-      }
-      if (filters.demandType) {
-        if (t.demandType !== filters.demandType) return false;
-      }
-      if (filters.query) {
-        const q = filters.query.toLowerCase();
-        const blob = [
-          t.title, t.subtitle, t.responsible,
-          t.raw?.["Detalhe da demanda (Escopo)"],
-          t.raw?.["Sistema em Escopo"],
-          t.raw?.["Nome Cliente"],
-          t.raw?.["ID - PRP (RentSoft)"],
-          t.raw?.["IDPlanner"]
-        ].map(safeStr).join(" ").toLowerCase();
-        if (!blob.includes(q)) return false;
-      }
+      if (p && !_matchesPerson(t, p))                    return false;
+      if (filters.demandType && t.demandType !== filters.demandType) return false;
+      if (q && !_matchesQuery(t, q))                     return false;
       return true;
     })
-    // Recalcular horas apenas para o responsável filtrado
     .map(t => getFilteredView(t, filters.person));
 
-  // Atualizar badges
   $("#badgeTotal").textContent = `${filtered.length} demandas`;
-  const admSum = filtered.reduce((acc, t) => acc + (t.hoursAdm || 0), 0);
-  $("#badgeAdm").textContent = `${admSum.toFixed(0)}h ADM`;
+  $("#badgeAdm").textContent   = `${filtered.reduce((acc, t) => acc + (t.hoursAdm || 0), 0).toFixed(0)}h ADM`;
 
-  // Contagem de cards por tipo de demanda (nos filtrados, mas ignorando filtro de demandType? Geralmente melhor UX)
   const baseForTypeCounts = tasks.filter(t => {
-    // aplicar todos os filtros exceto demandType
-    if (filters.person) {
-      const p = filters.person.toLowerCase();
-      const allApontamentos = t._apontamentos || t.raw?._apontamentos || [];
-      if (allApontamentos.length > 0) {
-        const hasMatch = allApontamentos.some(a => {
-          const name = safeStr(
-            a["Nome colaborador"] || a["Nome Colaborador"] || a.nome_colaborador ||
-            a.NomeColaborador || a.Colaborador || a.colaborador || a.nome || a.Nome || ""
-          ).toLowerCase();
-          return name.includes(p) || p.includes(name);
-        });
-        if (!hasMatch) return false;
-      } else {
-        if (!(t.responsible || "").toLowerCase().includes(p) && !p.includes((t.responsible || "").toLowerCase())) return false;
-      }
-    }
-    if (filters.query) {
-      const q = filters.query.toLowerCase();
-      const blob = [
-        t.title, t.subtitle, t.responsible,
-        t.raw?.["Detalhe da demanda (Escopo)"],
-        t.raw?.["Sistema em Escopo"],
-        t.raw?.["Nome Cliente"],
-        t.raw?.["ID - PRP (RentSoft)"],
-        t.raw?.["IDPlanner"]
-      ].map(safeStr).join(" ").toLowerCase();
-      if (!blob.includes(q)) return false;
-    }
+    if (p && !_matchesPerson(t, p)) return false;
+    if (q && !_matchesQuery(t, q))  return false;
     return true;
   });
 
@@ -464,7 +331,6 @@ function render() {
     typeRow.appendChild(el);
   });
 
-  // Colunas do Board
   const board = $("#board");
   board.innerHTML = "";
 
@@ -472,9 +338,9 @@ function render() {
   filtered.forEach(t => byStatus.get(t.status)?.push(t));
 
   STATUS_ORDER.forEach(s => {
-    const col = document.createElement("div");
+    const col  = document.createElement("div");
     col.className = "column";
-    const list = byStatus.get(s.key) || [];
+    const list   = byStatus.get(s.key) || [];
     const colAdm = list.reduce((acc, t) => acc + (t.hoursAdm || 0), 0);
 
     col.innerHTML = `
@@ -486,14 +352,12 @@ function render() {
     `;
 
     const body = $(".col-body", col);
-
-    // Eventos de Drag and Drop para o corpo da coluna
-    body.addEventListener("dragover", handleDragOver);
+    body.addEventListener("dragover",  handleDragOver);
     body.addEventListener("dragleave", handleDragLeave);
-    body.addEventListener("drop", (e) => handleDrop(e, s.key));
+    body.addEventListener("drop",      (e) => handleDrop(e, s.key));
 
     list
-      .sort((a, b) => (b.hoursAdm - a.hoursAdm) || (a.title.localeCompare(b.title)))
+      .sort((a, b) => (b.hoursAdm - a.hoursAdm) || a.title.localeCompare(b.title))
       .forEach(t => body.appendChild(renderTaskCard(t)));
 
     board.appendChild(col);
@@ -503,21 +367,19 @@ function render() {
 function renderTaskCard(t) {
   const el = document.createElement("div");
   el.className = "task";
-  el.draggable = true;
+  el.draggable  = true;
   el.addEventListener("dragstart", (e) => handleDragStart(e, t));
 
-  const projHours = t.hoursProject || 0;
-  const admHours = t.hoursAdm || 0;
-  const totalHours = t.hoursTotal || 0;
+  const projHours  = t.hoursProject || 0;
+  const admHours   = t.hoursAdm     || 0;
+  const totalHours = t.hoursTotal   || 0;
 
-  // Gerar avatares para o stack no canto superior
-  const avatars = (t.participants || []).map(p => {
-    const init = initials(p.name);
-    return `<div class="avatar-mini" title="${escapeHTML(p.name)}">${escapeHTML(init)}</div>`;
-  }).join("");
+  const avatars = (t.participants || []).map(p =>
+    `<div class="avatar-mini" title="${escapeHTML(p.name)}">${escapeHTML(initials(p.name))}</div>`
+  ).join("");
 
-  // Fallback se não houver participantes alocados
-  const avatarStackHtml = avatars || `<div class="avatar-mini" title="${escapeHTML(t.responsible)}">${escapeHTML(initials(t.responsible))}</div>`;
+  const avatarStack = avatars ||
+    `<div class="avatar-mini" title="${escapeHTML(t.responsible)}">${escapeHTML(initials(t.responsible))}</div>`;
 
   el.innerHTML = `
     <div class="top">
@@ -525,9 +387,7 @@ function renderTaskCard(t) {
         <div class="title" title="${escapeHTML(t.title)}">${escapeHTML(t.title)}</div>
         <div class="sub">${escapeHTML(t.subtitle)}</div>
       </div>
-      <div class="avatar-stack">
-        ${avatarStackHtml}
-      </div>
+      <div class="avatar-stack">${avatarStack}</div>
     </div>
     <div class="hours-grid">
       <div class="tag tag-type">${escapeHTML(t.demandType)}</div>
@@ -540,34 +400,33 @@ function renderTaskCard(t) {
   el.addEventListener("click", () => openModal(t));
   return el;
 }
+
 function escapeHTML(str) {
   const s = safeStr(str);
   return s.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 }
 
-/* -------- Modal -------- */
 async function openModal(task) {
-  $("#modalTitle").textContent = `${task.title}`;
-  $("#modalSubtitle").textContent = `${task.subtitle || ""}`;
+  $("#modalTitle").textContent    = task.title;
+  $("#modalSubtitle").textContent = task.subtitle || "";
 
   const kvs = [
-    ["Status", task.status],
-    ["Tipo de demanda", task.demandType],
-    ["Responsáveis", task.responsible || "—"],
-    ["Horas ADM (geral)", `${(task.hoursAdm || 0).toFixed(0)}h`],
-    ["Horas (total)", `${(task.hoursTotal || 0).toFixed(0)}h`],
-    ["Cliente", safeStr(task.raw?.["Nome Cliente"]) || "—"],
-    ["Área solicitante", safeStr(task.raw?.["Área Solicitante"]) || "—"],
-    ["Solicitante", safeStr(task.raw?.["Nome do Solicitante"]) || "—"],
-    ["PRP (RentSoft)", safeStr(task.raw?.["ID - PRP (RentSoft)"]) || "—"],
-    ["Sistema em escopo", safeStr(task.raw?.["Sistema em Escopo"]) || "—"],
-    ["Período escopo", `${safeStr(task.raw?.["Período Escopo (Inicial)"])} → ${safeStr(task.raw?.["Período Escopo (Final)"])}`.replace(" → ", " → ").trim()],
-    ["Início previsto", safeStr(task.raw?.["Data Início (Previsão)"]) || "—"],
-    ["Conclusão prevista", safeStr(task.raw?.["Data Conclusão (Previsão)"]) || "—"],
-    ["Aprovação", safeStr(task.raw?.["Aprovação Demanda"]) || "—"],
+    ["Status",              task.status],
+    ["Tipo de demanda",     task.demandType],
+    ["Responsáveis",        task.responsible || "—"],
+    ["Horas ADM (geral)",   `${(task.hoursAdm   || 0).toFixed(0)}h`],
+    ["Horas (total)",       `${(task.hoursTotal || 0).toFixed(0)}h`],
+    ["Cliente",             safeStr(task.raw?.["Nome Cliente"])                 || "—"],
+    ["Área solicitante",    safeStr(task.raw?.["Área Solicitante"])              || "—"],
+    ["Solicitante",         safeStr(task.raw?.["Nome do Solicitante"])           || "—"],
+    ["PRP (RentSoft)",      safeStr(task.raw?.["ID - PRP (RentSoft)"])           || "—"],
+    ["Sistema em escopo",   safeStr(task.raw?.["Sistema em Escopo"])             || "—"],
+    ["Período escopo",      `${safeStr(task.raw?.["Período Escopo (Inicial)"])} → ${safeStr(task.raw?.["Período Escopo (Final)"])}`.trim()],
+    ["Início previsto",     safeStr(task.raw?.["Data Início (Previsão)"])        || "—"],
+    ["Conclusão prevista",  safeStr(task.raw?.["Data Conclusão (Previsão)"])     || "—"],
+    ["Aprovação",           safeStr(task.raw?.["Aprovação Demanda"])             || "—"],
   ];
 
-  // Se há filtro de pessoa ativo, usar apenas os apontamentos desse responsável
   const apontamentos = task._filteredApontamentos || task.raw?._apontamentos || [];
 
   const grid = $("#modalGrid");
@@ -580,131 +439,76 @@ async function openModal(task) {
   });
 
   if (apontamentos.length > 0) {
-    const detailsSection = document.createElement("div");
-    detailsSection.style.marginTop = "20px";
-    detailsSection.style.borderTop = "1px solid #e0e0e0";
-    detailsSection.style.paddingTop = "20px";
+    const section = document.createElement("div");
+    section.style.cssText = "margin-top:20px;border-top:1px solid #e0e0e0;padding-top:20px;";
 
     const title = document.createElement("h3");
-    title.textContent = "📊 Detalhamento de Apontamentos (API)";
-    title.style.marginBottom = "10px";
-    title.style.fontSize = "1.1rem";
-    detailsSection.appendChild(title);
+    title.textContent  = "Detalhamento de Apontamentos";
+    title.style.cssText = "margin-bottom:10px;font-size:1.1rem;";
+    section.appendChild(title);
 
     const table = document.createElement("table");
-    table.style.width = "100%";
-    table.style.borderCollapse = "collapse";
-    table.style.fontSize = "0.9rem";
+    table.style.cssText = "width:100%;border-collapse:collapse;font-size:0.9rem;";
 
-    const thead = document.createElement("thead");
-    thead.innerHTML = `
-      <tr style="background: #f5f5f5; border-bottom: 2px solid #ddd;">
-        <th style="padding: 12px 8px; text-align: left;">Nome Colaborador</th>
-        <th style="padding: 12px 8px; text-align: left;">Responsabilidade</th>
-        <th style="padding: 12px 8px; text-align: left;">Tipo</th>
-        <th style="padding: 12px 8px; text-align: right;">Horas</th>
-      </tr>
+    table.innerHTML = `
+      <thead>
+        <tr style="background:#f5f5f5;border-bottom:2px solid #ddd;">
+          <th style="padding:12px 8px;text-align:left;">Nome Colaborador</th>
+          <th style="padding:12px 8px;text-align:left;">Responsabilidade</th>
+          <th style="padding:12px 8px;text-align:left;">Tipo</th>
+          <th style="padding:12px 8px;text-align:right;">Horas</th>
+        </tr>
+      </thead>
     `;
-    table.appendChild(thead);
 
-    const tbody = document.createElement("tbody");
-    let totalH = 0;
-
-    // Agrupar por colaborador (Sync com o pedido do usuário)
+    const tbody  = document.createElement("tbody");
+    let totalH   = 0;
     const grouped = new Map();
+
     apontamentos.forEach(a => {
-      const name = safeStr(
-        a["Nome colaborador"] ||
-        a["Nome Colaborador"] ||
-        a.nome_colaborador ||
-        a.NomeColaborador ||
-        a.Colaborador ||
-        a.colaborador ||
-        a.nome ||
-        a.Nome ||
-        "Colaborador não Identificado"
-      );
-
-      if (!grouped.has(name)) {
-        grouped.set(name, {
-          name: name,
-          hours: 0,
-          responsibilities: new Set(),
-          types: new Set()
-        });
-      }
-
+      const name = _apontamentoNome(a) || "Colaborador não identificado";
+      if (!grouped.has(name)) grouped.set(name, { name, hours: 0, responsibilities: new Set(), types: new Set() });
       const g = grouped.get(name);
-      const h = toNumber(
-        a.Horas ||
-        a.horas ||
-        a.HORAS ||
-        a.Hora ||
-        a.hora ||
-        0
-      );
+      const h = _apontamentoHours(a);
       g.hours += h;
-      totalH += h;
-
-      const resp = safeStr(
-        a.Responsabilidades ||
-        a.responsabilidade ||
-        a.responsabilidades ||
-        a.Responsabilidade ||
-        a.papel ||
-        a.Papel ||
-        ""
-      );
+      totalH  += h;
+      const resp = _apontamentoRole(a);
+      const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora || a.TipoDaHora || a.TipoHora || a.tipo || "");
       if (resp) g.responsibilities.add(resp);
-
-      const tipo = safeStr(
-        a["Tipo da hora"] ||
-        a.tipo_hora ||
-        a.TipoDaHora ||
-        a.TipoHora ||
-        a.tipo ||
-        ""
-      );
       if (tipo) g.types.add(tipo);
     });
 
-    // Renderizar linhas agrupadas
     [...grouped.values()]
-      .sort((a, b) => b.hours - a.hours) // Mostrar quem tem mais horas primeiro
+      .sort((a, b) => b.hours - a.hours)
       .forEach((g, idx) => {
         const tr = document.createElement("tr");
         tr.style.borderBottom = "1px solid #eee";
         if (idx % 2 === 0) tr.style.background = "#fafafa";
-
-        const responsabilidadesStr = [...g.responsibilities].join(", ") || "—";
-        const tiposStr = [...g.types].join(", ") || "—";
-
         tr.innerHTML = `
-          <td style="padding: 12px 8px;">${escapeHTML(g.name)}</td>
-          <td style="padding: 12px 8px;">${escapeHTML(responsabilidadesStr)}</td>
-          <td style="padding: 12px 8px;">${escapeHTML(tiposStr)}</td>
-          <td style="padding: 12px 8px; text-align: right; font-weight: bold;">${g.hours.toFixed(1)}h</td>
+          <td style="padding:12px 8px;">${escapeHTML(g.name)}</td>
+          <td style="padding:12px 8px;">${escapeHTML([...g.responsibilities].join(", ") || "—")}</td>
+          <td style="padding:12px 8px;">${escapeHTML([...g.types].join(", ") || "—")}</td>
+          <td style="padding:12px 8px;text-align:right;font-weight:bold;">${g.hours.toFixed(1)}h</td>
         `;
         tbody.appendChild(tr);
       });
-    table.appendChild(tbody);
 
-    const tfoot = document.createElement("tfoot");
-    tfoot.innerHTML = `
-      <tr style="background: #e8f4f8; border-top: 2px solid #ddd; font-weight: bold;">
-        <td colspan="3" style="padding: 12px 8px;">TOTAL</td>
-        <td style="padding: 12px 8px; text-align: right;">${totalH.toFixed(1)}h</td>
-      </tr>
+    table.appendChild(tbody);
+    table.innerHTML += `
+      <tfoot>
+        <tr style="background:#e8f4f8;border-top:2px solid #ddd;font-weight:bold;">
+          <td colspan="3" style="padding:12px 8px;">TOTAL</td>
+          <td style="padding:12px 8px;text-align:right;">${totalH.toFixed(1)}h</td>
+        </tr>
+      </tfoot>
     `;
-    table.appendChild(tfoot);
-    detailsSection.appendChild(table);
-    grid.appendChild(detailsSection);
+    section.appendChild(table);
+    grid.appendChild(section);
   }
 
   const desc = safeStr(task.raw?.["Detalhe da demanda (Escopo)"]);
   $("#modalNote").textContent = desc || "Sem detalhes adicionais.";
 
-  // --- Lógica de Checklist Atualizada com API ---
   let checklistContainer = $("#checklistContainer");
   if (!checklistContainer) {
     checklistContainer = document.createElement("div");
@@ -713,18 +517,14 @@ async function openModal(task) {
     $("#modalNote").after(checklistContainer);
   }
 
-  // Exibe estado de carregamento
-  checklistContainer.innerHTML = "<p style='padding:10px; color:#666;'>⏳ Carregando checklist...</p>";
-
-  // Abre o modal primeiro para não parecer travado
+  checklistContainer.innerHTML = "<p style='padding:10px;color:#666;'>Carregando checklist...</p>";
   $("#modalBackdrop").classList.add("show");
 
-  // Busca dados da API e renderiza
   try {
     const apiTasks = await loadChecklistFromAPI(task.id);
-    task.checklist = apiTasks; // Atualiza o objeto da task na memória
+    task.checklist = apiTasks;
     renderChecklist(task, checklistContainer);
-  } catch (err) {
+  } catch (_) {
     checklistContainer.innerHTML = "<p style='color:red;'>Erro ao carregar checklist.</p>";
   }
 }
@@ -733,9 +533,7 @@ function closeModal() {
   $("#modalBackdrop").classList.remove("show");
 }
 
-/* -------- Carregamento de dados -------- */
 async function loadFromFetch() {
-  // Funciona quando servido via HTTP (intranet / servidor)
   const resp = await fetch("./data/tasks.json", { cache: "no-store" });
   if (!resp.ok) throw new Error("fetch failed");
   const obj = await resp.json();
@@ -746,8 +544,7 @@ function loadFromLocalStorage() {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (!raw) return null;
-    const obj = JSON.parse(raw);
-    return obj.tasks || null;
+    return JSON.parse(raw).tasks || null;
   } catch (_) {
     return null;
   }
@@ -760,59 +557,6 @@ function saveToLocalStorage(taskList) {
   }));
 }
 
-/* -------- Dual CSV Management -------- */
-/*
-function saveCsv1ToLocalStorage(data) {
-  localStorage.setItem(LOCAL_CSV1_KEY, JSON.stringify({
-    updatedAt: new Date().toISOString(),
-    data: data,
-  }));
-}
-
-function saveCsv2ToLocalStorage(data) {
-  localStorage.setItem(LOCAL_CSV2_KEY, JSON.stringify({
-    updatedAt: new Date().toISOString(),
-    data: data,
-  }));
-}
-
-function loadCsv1FromLocalStorage() {
-  try {
-    const raw = localStorage.getItem(LOCAL_CSV1_KEY);
-    if (!raw) return null;
-    const obj = JSON.parse(raw);
-    return obj.data || null;
-  } catch (_) {
-    return null;
-  }
-}
-
-function loadCsv2FromLocalStorage() {
-  try {
-    const raw = localStorage.getItem(LOCAL_CSV2_KEY);
-    if (!raw) return null;
-    const obj = JSON.parse(raw);
-    return obj.data || null;
-  } catch (_) {
-    return null;
-  }
-}
-*/
-
-// Funções de CSV removidas
-
-/*
-function updateCsvStatus() {
-  const statusEl = $("#csvStatus");
-  if (!statusEl) return;
-
-  const csv1Status = csv1Data ? "✅" : "❌";
-  const csv2Status = csv2Data ? "✅" : "❌";
-
-  statusEl.textContent = `CSV Principal: ${csv1Status} | CSV Complementar: ${csv2Status}`;
-}
-*/
-
 function setUpdatedMeta(tsISO) {
   const d = tsISO ? new Date(tsISO) : new Date();
   $("#badgeUpdated").textContent = `atualizado ${d.toLocaleString()}`;
@@ -824,7 +568,6 @@ function populatePeopleDropdown() {
     if (t.responsible && t.responsible !== "Sem responsável") {
       t.responsible.split(", ").forEach(p => { if (p.trim()) people.add(p.trim()); });
     }
-    // Também varrer campos diretos da demanda como fallback
     const raw = t.raw || {};
     ["Responsável Demanda", "Responsável Cyber", "Responsável Intelidados", "Trainee do Projeto"].forEach(f => {
       const n = safeStr(raw[f]);
@@ -832,12 +575,11 @@ function populatePeopleDropdown() {
     });
   });
 
-  const sorted = [...people].sort((a, b) => a.localeCompare(b));
-  const sel = $("#personSelect");
-  const current = filters.person;
-
-  sel.innerHTML = `<option value="">Todos</option>` + sorted.map(p => `<option value="${escapeHTML(p)}">${escapeHTML(p)}</option>`).join("");
-  sel.value = current || "";
+  const sorted  = [...people].sort((a, b) => a.localeCompare(b));
+  const sel     = $("#personSelect");
+  sel.innerHTML = `<option value="">Todos</option>` +
+    sorted.map(p => `<option value="${escapeHTML(p)}">${escapeHTML(p)}</option>`).join("");
+  sel.value = filters.person || "";
 }
 
 function syncControls() {
@@ -854,28 +596,20 @@ function resetFilters() {
   render();
 }
 
-function setBanner(msg, kind = "info") {
+function setBanner(msg) {
   const el = $("#banner");
   el.textContent = msg;
   el.classList.remove("hidden");
-  el.dataset.kind = kind;
 }
 
 function hideBanner() {
   $("#banner").classList.add("hidden");
 }
 
-
-
-/* -------- Eventos -------- */
 function bindEvents() {
   $("#modalClose").addEventListener("click", closeModal);
-  $("#modalBackdrop").addEventListener("click", (e) => {
-    if (e.target.id === "modalBackdrop") closeModal();
-  });
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeModal();
-  });
+  $("#modalBackdrop").addEventListener("click", (e) => { if (e.target.id === "modalBackdrop") closeModal(); });
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 
   $("#personSelect").addEventListener("change", (e) => {
     filters.person = e.target.value;
@@ -891,185 +625,14 @@ function bindEvents() {
 
   $("#btnReset").addEventListener("click", resetFilters);
 
-
-
   $("#clearTypeBtn").addEventListener("click", () => {
     filters.demandType = "";
     saveFilters();
     syncControls();
     render();
   });
-
-  /*
-    // --- Upload de CSV Duplo ---
-    const btnLoadCsv1 = $("#btnLoadCsv1");
-    const fileInput1 = $("#csvFile1");
-    const btnLoadCsv2 = $("#btnLoadCsv2");
-    const fileInput2 = $("#csvFile2");
-  
-    // Handler para CSV1 (Principal - com coluna ID)
-    if (btnLoadCsv1 && fileInput1) {
-      btnLoadCsv1.addEventListener("click", () => fileInput1.click());
-  
-      fileInput1.addEventListener("change", (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-  
-        const reader = new FileReader();
-        reader.onload = (evt) => {
-          const text = evt.target.result;
-          try {
-            const rawData = parseCSV(text);
-            csv1Data = rawData;
-            saveCsv1ToLocalStorage(rawData);
-  
-            console.log(`[CSV1] Loaded ${rawData.length} records`);
-  
-            // Mesclar com CSV2 se disponível
-            const mergedData = mergeCsvData(csv1Data, csv2Data);
-            tasks = normalizeTasks(mergedData);
-  
-            // Salvar tarefas mescladas
-            saveToLocalStorage(tasks);
-  
-            // Atualizar UI
-            setUpdatedMeta(new Date().toISOString());
-            populatePeopleDropdown();
-            syncControls();
-            render();
-            updateCsvStatus();
-  
-            setBanner("CSV Principal carregado com sucesso! " + (csv2Data ? "Dados mesclados com CSV Complementar." : "Aguardando CSV Complementar para mesclar."), "success");
-          } catch (err) {
-            console.error(err);
-            alert("Erro ao ler CSV Principal: " + err.message);
-          }
-        };
-        reader.readAsText(file);
-        e.target.value = "";
-      });
-    }
-  
-    // Handler para CSV2 (Complementar - com coluna DemandaId)
-    if (btnLoadCsv2 && fileInput2) {
-      btnLoadCsv2.addEventListener("click", () => fileInput2.click());
-  
-      fileInput2.addEventListener("change", (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-  
-        const reader = new FileReader();
-        reader.onload = (evt) => {
-          const text = evt.target.result;
-          try {
-            const rawData = parseCSV(text);
-            csv2Data = rawData;
-            saveCsv2ToLocalStorage(rawData);
-  
-            console.log(`[CSV2] Loaded ${rawData.length} records`);
-  
-            // Mesclar com CSV1 se disponível
-            if (csv1Data) {
-              const mergedData = mergeCsvData(csv1Data, csv2Data);
-              tasks = normalizeTasks(mergedData);
-  
-              // Salvar tarefas mescladas
-              saveToLocalStorage(tasks);
-  
-              // Atualizar UI
-              setUpdatedMeta(new Date().toISOString());
-              populatePeopleDropdown();
-              syncControls();
-              render();
-              updateCsvStatus();
-  
-              setBanner("CSV Complementar carregado e mesclado com sucesso!", "success");
-            } else {
-              updateCsvStatus();
-              setBanner("CSV Complementar carregado. Aguardando CSV Principal para mesclar.", "info");
-            }
-          } catch (err) {
-            console.error(err);
-            alert("Erro ao ler CSV Complementar: " + err.message);
-          }
-        };
-        reader.readAsText(file);
-        e.target.value = "";
-      });
-    }
-  */
-
-  /*
-    // --- Exportar JSON ---
-    const btnExport = $("#btnExportJson");
-    if (btnExport) {
-      btnExport.addEventListener("click", () => {
-        const dataStr = JSON.stringify({ tasks, exportedAt: new Date() }, null, 2);
-        const blob = new Blob([dataStr], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `ppc_tasks_${new Date().toISOString().slice(0, 10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      });
-    }
-  */
 }
 
-// New Init using API
-async function init() {
-  loadFilters();
-  bindEvents();
-  // updateCsvStatus(); // Mostra o status inicial dos CSVs
-
-  console.log("Iniciando carregamento de dados via API...");
-  try {
-    // 1. Busca os dados da API (Tarefas e Apontamentos)
-    const [tasksData, apontamentosData] = await Promise.all([
-      api.getTasks(),
-      api.getApontamentos()
-    ]);
-
-    // 2. Mescla os dados
-    const merged = mergeData(tasksData, apontamentosData);
-
-    // 3. Normaliza os dados usando a normalizeTasks
-    tasks = normalizeTasks(merged);
-
-    // 4. Atualiza metadados e UI
-    setUpdatedMeta(new Date().toISOString());
-    populatePeopleDropdown();
-    syncControls(); // Garante que os inputs reflitam o 'filters' carregado
-    render();
-
-    console.log("Inicialização via API concluída.", tasks.length, "tarefas.");
-  } catch (e) {
-    console.error("Erro fatal ao carregar dados da API:", e);
-
-    // Fallback para LocalStorage se a API falhar
-    const cachedTasks = loadFromLocalStorage();
-    if (cachedTasks) {
-      tasks = normalizeTasks(cachedTasks);
-      render();
-      setBanner(`⚠️ API indisponível (${API_BASE_URL}) — exibindo cache local. Erro: ${e.message}`, "info");
-    } else if (window.__PPC_SAMPLE__) {
-      tasks = normalizeTasks(window.__PPC_SAMPLE__);
-      render();
-      setBanner(`⚠️ API indisponível (${API_BASE_URL}) — exibindo dados de amostra. Erro: ${e.message}`, "info");
-    } else {
-      setBanner(`❌ Sem dados: API offline (${API_BASE_URL}) e sem cache local. Erro: ${e.message}`, "info");
-    }
-  } finally {
-    // Esconder o loader
-    const loader = $("#loader");
-    if (loader) loader.classList.add("hidden");
-  }
-}
-
-// Normaliza IDs para comparação robusta: "123.0" → "123", 123 → "123"
 function normalizeId(val) {
   if (val == null || val === "") return "";
   const s = String(val).trim();
@@ -1078,23 +641,16 @@ function normalizeId(val) {
 }
 
 function mergeData(tasksList, apontamentosList) {
-  if (!Array.isArray(tasksList)) return [];
+  if (!Array.isArray(tasksList))       return [];
   if (!Array.isArray(apontamentosList)) return tasksList;
 
-  // Criar mapa de apontamentos agrupados pelo DemandaId (normalizado)
   const mapById = new Map();
   let semDemandaId = 0;
-  apontamentosList.forEach(a => {
-    // A API às vezes retorna "DemandaId " COM ESPAÇO NO FINAL
-    const rawDemandaId =
-      a["DemandaId "] ??
-      a.DemandaId ??
-      a.demanda_id ??
-      a.demandaId ??
-      a.demanda_Id ??
-      null;
-    const key = rawDemandaId != null ? normalizeId(rawDemandaId) : "";
 
+  apontamentosList.forEach(a => {
+    // A API retorna "DemandaId " com espaço no final em alguns casos
+    const rawId = a["DemandaId "] ?? a.DemandaId ?? a.demanda_id ?? a.demandaId ?? a.demanda_Id ?? null;
+    const key   = rawId != null ? normalizeId(rawId) : "";
     if (key) {
       if (!mapById.has(key)) mapById.set(key, []);
       mapById.get(key).push(a);
@@ -1103,7 +659,6 @@ function mergeData(tasksList, apontamentosList) {
     }
   });
 
-  // Fallback por Nome Cliente quando DemandaId não está preenchido no backend
   const normC = s => String(s || "").trim().toLowerCase();
   const mapByCliente = new Map();
   apontamentosList.forEach(a => {
@@ -1119,7 +674,6 @@ function mergeData(tasksList, apontamentosList) {
     if (mapById.has(taskId)) {
       task._apontamentos = mapById.get(taskId);
     } else if (semDemandaId > 0) {
-      // Fallback: match por Nome Cliente quando DemandaId é null no backend
       const clienteTask = normC(task["Nome Cliente"] || task["Contato Cliente"] || task.cliente || "");
       task._apontamentos = (clienteTask && mapByCliente.has(clienteTask))
         ? mapByCliente.get(clienteTask)
@@ -1131,34 +685,53 @@ function mergeData(tasksList, apontamentosList) {
   });
 }
 
-/**
- * Helper para normalizar uma lista de tarefas raw ou semi-raw
- */
 function normalizeTasks(list) {
   if (!Array.isArray(list)) return [];
-  return list.map(t => {
-    // Se parece com nosso objeto 'task' interno (tem id, título...), use-o.
-    // Se parece com uma linha CSV raw, normalize-a.
-    if (t.raw && t.status) return t; // Já processado
-    return normalizeRow(t);
-  });
+  return list.map(t => (t.raw && t.status) ? t : normalizeRow(t));
+}
+
+async function init() {
+  loadFilters();
+  bindEvents();
+
+  try {
+    const [tasksData, apontamentosData] = await Promise.all([
+      api.getTasks(),
+      api.getApontamentos()
+    ]);
+
+    tasks = normalizeTasks(mergeData(tasksData, apontamentosData));
+    setUpdatedMeta(new Date().toISOString());
+    populatePeopleDropdown();
+    syncControls();
+    render();
+  } catch (e) {
+    const cachedTasks = loadFromLocalStorage();
+    if (cachedTasks) {
+      tasks = normalizeTasks(cachedTasks);
+      render();
+      setBanner(`API indisponível — exibindo cache local. ${e.message}`);
+    } else if (window.__PPC_SAMPLE__) {
+      tasks = normalizeTasks(window.__PPC_SAMPLE__);
+      render();
+      setBanner(`API indisponível — exibindo dados de amostra. ${e.message}`);
+    } else {
+      setBanner(`Sem dados: API offline e sem cache local. ${e.message}`);
+    }
+  } finally {
+    const loader = $("#loader");
+    if (loader) loader.classList.add("hidden");
+  }
 }
 
 document.addEventListener("DOMContentLoaded", init);
 
-/* ==============================================
-   PAINEL DE PRAZOS — Lógica da Gaveta Lateral
-   ============================================== */
+/* -------- Painel de Prazos -------- */
 
-/**
- * Faz parse de datas no formato M/D/YYYY, DD/MM/YYYY ou ISO
- * (A API pode retornar datas em formatos variados)
- */
 function parseDateForPrazos(str) {
   if (!str) return null;
   const s = String(str).trim();
 
-  // Formato M/D/YYYY (usado no sample data: "1/19/2026")
   const mdyMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (mdyMatch) {
     const [, m, d, y] = mdyMatch;
@@ -1166,7 +739,6 @@ function parseDateForPrazos(str) {
     if (!isNaN(date.getTime())) return date;
   }
 
-  // Formato DD/MM/YYYY (usado pela API)
   const dmyMatch = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (dmyMatch) {
     const [, d, m, y] = dmyMatch;
@@ -1174,29 +746,24 @@ function parseDateForPrazos(str) {
     if (!isNaN(date.getTime())) return date;
   }
 
-  // Fallback ISO
   const iso = new Date(s);
-  if (!isNaN(iso.getTime())) return iso;
-
-  return null;
+  return !isNaN(iso.getTime()) ? iso : null;
 }
 
 function formatDatePrazos(date) {
   if (!date) return "—";
-  const d = String(date.getDate()).padStart(2, "0");
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const y = date.getFullYear();
-  return `${d}/${m}/${y}`;
+  return [
+    String(date.getDate()).padStart(2, "0"),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    date.getFullYear()
+  ].join("/");
 }
 
 function openPrazosDrawer() {
   const overlay = document.getElementById("prazosOverlay");
-  const drawer = document.getElementById("prazosDrawer");
+  const drawer  = document.getElementById("prazosDrawer");
   if (!overlay || !drawer) return;
-
-  // Renderiza dados atuais
   renderPainelPrazos();
-
   overlay.classList.add("open");
   drawer.classList.add("open");
   document.body.style.overflow = "hidden";
@@ -1204,9 +771,8 @@ function openPrazosDrawer() {
 
 function closePrazosDrawer() {
   const overlay = document.getElementById("prazosOverlay");
-  const drawer = document.getElementById("prazosDrawer");
+  const drawer  = document.getElementById("prazosDrawer");
   if (!overlay || !drawer) return;
-
   overlay.classList.remove("open");
   drawer.classList.remove("open");
   document.body.style.overflow = "";
@@ -1216,53 +782,41 @@ function renderPainelPrazos() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const aIniciar = [];
-  const emAndamento = [];
-  const atrasados = [];
+  const aIniciar = [], emAndamento = [], atrasados = [];
 
   tasks.forEach(task => {
-    // Ignorar Concluídas e Canceladas
     if (task.status === "Concluída" || task.status === "Cancelada") return;
 
     const raw = task.raw || task;
+    const startDate = parseDateForPrazos(safeStr(raw["Data Início (Previsão)"] || raw["Data Inicio (Previsao)"] || raw.dateStart || ""))
+                   || parseDateForPrazos(task.dates?.start);
+    const endDate   = parseDateForPrazos(safeStr(raw["Data Conclusão (Previsão)"] || raw["Data Conclusao (Previsao)"] || raw.dateEnd || ""))
+                   || parseDateForPrazos(task.dates?.end);
 
-    // Datas
-    const startStr = safeStr(raw["Data Início (Previsão)"] || raw["Data Inicio (Previsao)"] || raw.dateStart || "");
-    const endStr = safeStr(raw["Data Conclusão (Previsão)"] || raw["Data Conclusao (Previsao)"] || raw.dateEnd || "");
-
-    const startDate = parseDateForPrazos(startStr) || parseDateForPrazos(task.dates?.start);
-    const endDate = parseDateForPrazos(endStr) || parseDateForPrazos(task.dates?.end);
-
-    const cliente = safeStr(
-      raw["Nome Cliente"] || raw["Contato Cliente"] || task.title || "Cliente não identificado"
-    );
-    const tipo = task.demandType || safeStr(raw["Tipo de Demanda"]) || "—";
-    const responsavel = task.responsible || "Sem responsável";
-
-    const entry = { cliente, tipo, responsavel, startDate, endDate, status: task.status };
+    const entry = {
+      cliente:    safeStr(raw["Nome Cliente"] || raw["Contato Cliente"] || task.title || "Cliente não identificado"),
+      tipo:       task.demandType || safeStr(raw["Tipo de Demanda"]) || "—",
+      responsavel: task.responsible || "Sem responsável",
+      startDate,
+      endDate,
+    };
 
     if (endDate && endDate < today) {
-      // 1. Prazo de conclusão já passou = ATRASADO
       atrasados.push(entry);
     } else if (startDate && startDate < today && task.status !== "Em andamento") {
-      // 2. Data de início já passou mas não começou = ATRASADO (Início Atrasado)
       atrasados.push(entry);
     } else if (task.status === "Em andamento") {
-      // 3. Está em andamento e prazo de conclusão ok = EM ANDAMENTO
       emAndamento.push(entry);
     } else {
-      // 4. Backlog / Outros com data de início futura = A INICIAR
       aIniciar.push(entry);
     }
   });
 
-  // Ordenar por data de início ascendente
   const byStart = (a, b) => (a.startDate || new Date(9999, 0)) - (b.startDate || new Date(9999, 0));
   aIniciar.sort(byStart);
   emAndamento.sort(byStart);
   atrasados.sort((a, b) => (a.endDate || new Date(0)) - (b.endDate || new Date(0)));
 
-  // Resumo Numérico
   const summaryEl = document.getElementById("prazosSummaryRow");
   if (summaryEl) {
     summaryEl.innerHTML = `
@@ -1281,18 +835,16 @@ function renderPainelPrazos() {
     `;
   }
 
-  // Contadores
-  const countStart = document.getElementById("countStart");
+  const countStart   = document.getElementById("countStart");
   const countOngoing = document.getElementById("countOngoing");
-  const countLate = document.getElementById("countLate");
-  if (countStart) countStart.textContent = aIniciar.length;
+  const countLate    = document.getElementById("countLate");
+  if (countStart)   countStart.textContent   = aIniciar.length;
   if (countOngoing) countOngoing.textContent = emAndamento.length;
-  if (countLate) countLate.textContent = atrasados.length;
+  if (countLate)    countLate.textContent    = atrasados.length;
 
-  // Render das listas
-  renderPrazosCards("cardsStart", aIniciar, "start");
+  renderPrazosCards("cardsStart",   aIniciar,    "start");
   renderPrazosCards("cardsOngoing", emAndamento, "ongoing");
-  renderPrazosCards("cardsLate", atrasados, "late");
+  renderPrazosCards("cardsLate",    atrasados,   "late");
 }
 
 function renderPrazosCards(containerId, entries, category) {
@@ -1300,61 +852,41 @@ function renderPrazosCards(containerId, entries, category) {
   if (!container) return;
 
   if (entries.length === 0) {
-    const emptyMessages = {
-      start: "Nenhum projeto a iniciar",
-      ongoing: "Nenhum projeto em andamento",
-      late: "Nenhum projeto atrasado 🎉"
-    };
-    container.innerHTML = `<div class="prazos-empty">${emptyMessages[category] || "Sem dados"}</div>`;
+    const empty = { start: "Nenhum projeto a iniciar", ongoing: "Nenhum projeto em andamento", late: "Nenhum projeto atrasado 🎉" };
+    container.innerHTML = `<div class="prazos-empty">${empty[category] || "Sem dados"}</div>`;
     return;
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  container.innerHTML = entries.map(entry => {
-    const typeBadgeClass = `type-badge-${category}`;
-    const cardClass = `card-${category}`;
-    const isOverdue = category === "late";
-
-    const startStr = formatDatePrazos(entry.startDate);
-    const endStr = formatDatePrazos(entry.endDate);
-
-    return `
-      <div class="prazos-project-card ${cardClass}">
-        <div class="prazos-card-top">
-          <div class="prazos-card-client">${escapeHTML(entry.cliente)}</div>
-          <span class="prazos-card-type ${typeBadgeClass}">${escapeHTML(entry.tipo)}</span>
-        </div>
-        <div class="prazos-card-dates">
-          <div class="prazos-date-item">
-            <span class="prazos-date-label">Início</span>
-            <span class="prazos-date-value">${startStr}</span>
-          </div>
-          <span class="prazos-date-separator">→</span>
-          <div class="prazos-date-item">
-            <span class="prazos-date-label">Conclusão</span>
-            <span class="prazos-date-value ${isOverdue ? 'overdue' : ''}">${endStr}</span>
-          </div>
-        </div>
-        <div class="prazos-card-responsible">👤 ${escapeHTML(entry.responsavel)}</div>
+  container.innerHTML = entries.map(entry => `
+    <div class="prazos-project-card card-${category}">
+      <div class="prazos-card-top">
+        <div class="prazos-card-client">${escapeHTML(entry.cliente)}</div>
+        <span class="prazos-card-type type-badge-${category}">${escapeHTML(entry.tipo)}</span>
       </div>
-    `;
-  }).join("");
+      <div class="prazos-card-dates">
+        <div class="prazos-date-item">
+          <span class="prazos-date-label">Início</span>
+          <span class="prazos-date-value">${formatDatePrazos(entry.startDate)}</span>
+        </div>
+        <span class="prazos-date-separator">→</span>
+        <div class="prazos-date-item">
+          <span class="prazos-date-label">Conclusão</span>
+          <span class="prazos-date-value ${category === 'late' ? 'overdue' : ''}">${formatDatePrazos(entry.endDate)}</span>
+        </div>
+      </div>
+      <div class="prazos-card-responsible">👤 ${escapeHTML(entry.responsavel)}</div>
+    </div>
+  `).join("");
 }
 
-// ---- Event Listeners para o Painel de Prazos ----
 document.addEventListener("DOMContentLoaded", () => {
-  const btnOpen = document.getElementById("btnPainelPrazos");
+  const btnOpen  = document.getElementById("btnPainelPrazos");
   const btnClose = document.getElementById("btnClosePrazos");
-  const overlay = document.getElementById("prazosOverlay");
+  const overlay  = document.getElementById("prazosOverlay");
 
-  if (btnOpen) btnOpen.addEventListener("click", openPrazosDrawer);
+  if (btnOpen)  btnOpen.addEventListener("click",  openPrazosDrawer);
   if (btnClose) btnClose.addEventListener("click", closePrazosDrawer);
-  if (overlay) overlay.addEventListener("click", closePrazosDrawer);
+  if (overlay)  overlay.addEventListener("click",  closePrazosDrawer);
 
-  // Fechar com tecla ESC
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closePrazosDrawer();
-  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePrazosDrawer(); });
 });
