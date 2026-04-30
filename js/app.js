@@ -134,14 +134,19 @@ function normalizeRow(row) {
 
   const responsible  = participants.map(p => p.name).join(", ") || "Sem responsável";
   const hoursProject = Math.max(0, hoursTotal - hoursAdm - hoursTraining);
+  const rawDemandId  = safeStr(
+    row["DemandaId "] ?? row.DemandaId ?? row.demanda_id ?? row.demandaId ?? row.demanda_Id ?? row["id"] ?? row.id ?? ""
+  );
   const client       = safeStr(row["Nome Cliente"]) || safeStr(row["Contato Cliente"]) || "";
   const scopeSystem  = safeStr(row["Sistema em Escopo"]);
   const prpId        = safeStr(row["ID - PRP (RentSoft)"]);
   const titleDetail  = scopeSystem || safeStr(row["Detalhe da demanda (Escopo)"]).slice(0, 48) || prpId || "Demanda";
-  const id           = safeStr(row["id"]) || prpId || crypto.randomUUID();
+  const id           = safeStr(row["id"]) || rawDemandId || prpId || crypto.randomUUID();
+  const displayId    = rawDemandId || prpId || "";
 
   return {
     id,
+    displayId,
     demandType,
     status,
     title: client || safeStr(row["Área Solicitante"]) || "Cliente não identificado",
@@ -276,15 +281,26 @@ function _matchesPerson(t, p) {
 }
 
 function _matchesQuery(t, q) {
+  const normalizedQuery = q.replace(/^#+/, "").trim();
+  const queryTerms = [q, normalizedQuery].filter(Boolean);
+
   const blob = [
     t.title, t.subtitle, t.responsible,
     t.raw?.["Detalhe da demanda (Escopo)"],
     t.raw?.["Sistema em Escopo"],
     t.raw?.["Nome Cliente"],
     t.raw?.["ID - PRP (RentSoft)"],
-    t.raw?.["IDPlanner"]
+    t.raw?.["IDPlanner"],
+    t.raw?.["DemandaId "],
+    t.raw?.DemandaId,
+    t.raw?.demanda_id,
+    t.raw?.demandaId,
+    t.raw?.demanda_Id,
+    t.displayId,
+    t.displayId ? `#${t.displayId}` : ""
   ].map(safeStr).join(" ").toLowerCase();
-  return blob.includes(q);
+
+  return queryTerms.some(term => blob.includes(term.toLowerCase()));
 }
 
 function render() {
@@ -384,7 +400,10 @@ function renderTaskCard(t) {
   el.innerHTML = `
     <div class="top">
       <div style="flex:1; min-width:0;">
-        <div class="title" title="${escapeHTML(t.title)}">${escapeHTML(t.title)}</div>
+        <div class="title-row">
+          <div class="title" title="${escapeHTML(t.title)}">${escapeHTML(t.title)}</div>
+          ${t.displayId ? `<div class="id-badge">#${escapeHTML(t.displayId)}</div>` : ""}
+        </div>
         <div class="sub">${escapeHTML(t.subtitle)}</div>
       </div>
       <div class="avatar-stack">${avatarStack}</div>

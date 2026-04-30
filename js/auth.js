@@ -11,7 +11,7 @@ const Auth = (() => {
         { email: 'f.liani@ppc.com.br',         password: '654321', name: 'Fabricio Liani',          role: 'admin',      area: null    },
         { email: 'higor.sapacosta@ppc.com.br', password: '654321', name: 'Higor Sapacosta',   role: 'admin',      area: null    },
         { email: 'victor.rodrigues@ppc.com.br', password: 'ppc123', name: 'Victor Rodrigues',   role: 'admin', area: 'null' },
-        { email: 'nova.area@empresa.com.br',    password: 'nova123',name: 'Nova Área',          role: 'user_area2', area: 'area2' },
+        { email: 'ribeirao@ppc.com.br',    password: 'ppc123',name: 'Ribeirão',          role: 'user_area2', area: 'area2' },
     ];
 
     // Roles que têm acesso a cada página restrita
