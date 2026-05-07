@@ -1,4 +1,4 @@
-const API_BASE_URL = "http://127.0.0.1:5000";
+const API_BASE_URL = "http://192.168.0.21:5000";
 const LISTS_BASE_URL = `${API_BASE_URL}/lists`;
 
 function _authHeaders() {

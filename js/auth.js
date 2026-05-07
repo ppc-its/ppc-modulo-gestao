@@ -1,17 +1,15 @@
-/* =========================
-   PPC — Módulo de Autenticação
-   ========================= */
-
 const Auth = (() => {
     const STORAGE_KEY = 'ppc_session';
-    const SESSION_TTL = 10 * 60 * 60 * 1000; // 10 horas
+    const SESSION_TTL = 10 * 60 * 60 * 1000; 
 
 
     const _users = [
         { email: 'f.liani@ppc.com.br',         password: '654321', name: 'Fabricio Liani',          role: 'admin',      area: null    },
         { email: 'higor.sapacosta@ppc.com.br', password: '654321', name: 'Higor Sapacosta',   role: 'admin',      area: null    },
-        { email: 'victor.rodrigues@ppc.com.br', password: 'ppc123', name: 'Victor Rodrigues',   role: 'admin', area: 'null' },
-        { email: 'ribeirao@ppc.com.br',    password: 'ppc123',name: 'Ribeirão',          role: 'user_area2', area: 'area2' },
+        { email: 'victor.rodrigues@ppc.com.br', password: '654321', name: 'Victor Rodrigues',   role: 'admin', area: 'null' },
+        { email: 'ds.braz@ppc.com.br',    password: '654321',name: 'Daniel Braz',          role: 'admin', area: 'null' },
+        { email: 'miguel.ectil@ppc.com.br',    password: '654321',name: 'Miguel Ectil',          role: 'admin', area: 'null' },
+        { email: 'ribeirao@ppc.com.br',    password: '654321',name: 'Ribeirão',          role: 'user_area2', area: 'area2' },
     ];
 
     // Roles que têm acesso a cada página restrita
