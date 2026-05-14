@@ -753,14 +753,8 @@ function parseDateForPrazos(str) {
   if (!str) return null;
   const s = String(str).trim();
 
-  const mdyMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (mdyMatch) {
-    const [, m, d, y] = mdyMatch;
-    const date = new Date(Number(y), Number(m) - 1, Number(d));
-    if (!isNaN(date.getTime())) return date;
-  }
-
-  const dmyMatch = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  // Brazilian format DD/MM/YYYY (also handles single-digit day/month)
+  const dmyMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (dmyMatch) {
     const [, d, m, y] = dmyMatch;
     const date = new Date(Number(y), Number(m) - 1, Number(d));
