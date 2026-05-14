@@ -3,6 +3,7 @@ const STATUS_ORDER = [
   { key: "Em andamento", label: "Em Andamento" },
   { key: "Concluída",    label: "Concluída"    },
   { key: "Cancelada",    label: "Cancelada"    },
+  { key: "Gerencial",    label: "Gerencial"    },
 ];
 
 const TYPE_ORDER = [
@@ -46,6 +47,7 @@ function normalizeStatus(raw) {
   if (["teste", "testing", "qa", "homologação", "homologacao", "revisão"].includes(s)) return "Em andamento";
   if (["concluído", "concluido", "done", "finalizado", "entregue", "concluída", "concluida"].includes(s)) return "Concluída";
   if (["cancelado", "dismissed", "descartado", "cancelada"].includes(s)) return "Cancelada";
+  if (["gerencial", "gestão", "gestao", "reunião gerencial", "reuniao gerencial"].includes(s)) return "Gerencial";
 
   return "Backlog";
 }

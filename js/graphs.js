@@ -326,7 +326,8 @@ function processTasks(tasks) {
             hoursTraining: metrics.hoursTraining,
             hoursDisponivel: metrics.hoursDisponivel,
             hoursFerias: metrics.hoursFerias,
-            get hours() { return (this.hoursProject || 0) + (this.hoursAdm || 0) + (this.hoursTraining || 0) + (this.hoursDisponivel || 0) + (this.hoursFerias || 0); },
+            hoursAtestado: metrics.hoursAtestado,
+            get hours() { return (this.hoursProject || 0) + (this.hoursAdm || 0) + (this.hoursTraining || 0) + (this.hoursDisponivel || 0) + (this.hoursFerias || 0) + (this.hoursAtestado || 0); },
             dateStart: parseDate(dateStartStr),
             dateEnd: parseDate(dateEndStr),
             get date() { return this.dateEnd || new Date(); },
@@ -571,7 +572,7 @@ function applyFilters() {
         const taskId = originalTask.id || originalTask.prpId || 'unknown';
         const metrics = calculateTaskMetrics(activeAppts, taskId, -1);
 
-        const hTotalValue = (metrics.hoursProject || 0) + (metrics.hoursAdm || 0) + (metrics.hoursTraining || 0) + (metrics.hoursDisponivel || 0) + (metrics.hoursFerias || 0);
+        const hTotalValue = (metrics.hoursProject || 0) + (metrics.hoursAdm || 0) + (metrics.hoursTraining || 0) + (metrics.hoursDisponivel || 0) + (metrics.hoursFerias || 0) + (metrics.hoursAtestado || 0);
 
         const finalAssignments = metrics.assignments.length > 0
             ? metrics.assignments
@@ -585,6 +586,7 @@ function applyFilters() {
             hoursTraining: metrics.hoursTraining,
             hoursDisponivel: metrics.hoursDisponivel,
             hoursFerias: metrics.hoursFerias,
+            hoursAtestado: metrics.hoursAtestado,
             assignments: finalAssignments,
             hours: hTotalValue,
             owner: finalAssignments.map(a => a.person).join(", ") || originalTask.owner || "Sem Responsável"
@@ -651,6 +653,7 @@ function renderHourTypeTable(data) {
     let totalTraining = 0;
     let totalDisponivel = 0;
     let totalFerias = 0;
+    let totalAtestado = 0;
 
     data.forEach(d => {
         totalProject += (d.hoursProject || 0);
@@ -658,9 +661,10 @@ function renderHourTypeTable(data) {
         totalTraining += (d.hoursTraining || 0);
         totalDisponivel += (d.hoursDisponivel || 0);
         totalFerias += (d.hoursFerias || 0);
+        totalAtestado += (d.hoursAtestado || 0);
     });
 
-    const grandTotal = totalProject + totalAdm + totalTraining + totalDisponivel + totalFerias;
+    const grandTotal = totalProject + totalAdm + totalTraining + totalDisponivel + totalFerias + totalAtestado;
 
     const createRow = (typeId, label, val, color) => {
         const tr = document.createElement('tr');
@@ -675,12 +679,14 @@ function renderHourTypeTable(data) {
         const pct = grandTotal > 0 ? ((val / grandTotal) * 100).toFixed(1) + '%' : '0.0%';
 
         tr.innerHTML = `
-            <td style="padding: 10px; display: flex; align-items: center; gap: 8px;">
-                <div style="width: 12px; height: 12px; border-radius: 50%; background-color: ${color};"></div>
-                ${label}
+            <td style="padding: 10px;">
+                <div style="display: flex; align-items: center; gap: 8px; white-space: nowrap;">
+                    <div style="width: 12px; height: 12px; border-radius: 50%; background-color: ${color}; flex-shrink: 0;"></div>
+                    <span>${label}</span>
+                </div>
             </td>
-            <td style="padding: 10px; text-align: right; font-family: monospace; font-size: 1.1em;">${val.toFixed(2)}h</td>
-            <td style="padding: 10px; text-align: right; color: #666; font-size: 0.9em;">${pct}</td>
+            <td style="padding: 10px; text-align: right; font-family: monospace; font-size: 1.1em; white-space: nowrap;">${val.toFixed(2)}h</td>
+            <td style="padding: 10px; text-align: right; color: #666; font-size: 0.9em; white-space: nowrap;">${pct}</td>
         `;
 
         tr.onclick = () => {
@@ -712,6 +718,7 @@ function renderHourTypeTable(data) {
     tbody.appendChild(createRow('training', 'Horas Treinamento', totalTraining, '#9d4edd'));
     tbody.appendChild(createRow('disponivel', 'Horas Disponível', totalDisponivel, '#10b981'));
     tbody.appendChild(createRow('ferias', 'Hora Férias', totalFerias, '#FF6384'));
+    tbody.appendChild(createRow('atestado', 'Horas Atestado Médico', totalAtestado, '#06b6d4'));
 
     const trTotal = document.createElement('tr');
     trTotal.style.fontWeight = 'bold';
@@ -769,6 +776,7 @@ function renderHourTypeDetails(type, data) {
     else if (type === 'training') label = 'Horas Treinamento';
     else if (type === 'disponivel') label = 'Horas Disponível';
     else if (type === 'ferias') label = 'Hora Férias';
+    else if (type === 'atestado') label = 'Horas Atestado Médico';
     else if (type === 'all') label = 'Visão Detalhada por Tipo';
 
     if (selectedStatus) label += ` (Status: ${selectedStatus})`;
@@ -795,12 +803,13 @@ function renderHourTypeDetails(type, data) {
             const h = toNumber(a.Horas || a.horas || 0);
             const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora || "").toLowerCase();
 
-            if (!personHoursMap.has(person)) personHoursMap.set(person, { project: 0, adm: 0, training: 0, disponivel: 0, ferias: 0 });
+            if (!personHoursMap.has(person)) personHoursMap.set(person, { project: 0, adm: 0, training: 0, disponivel: 0, ferias: 0, atestado: 0 });
             const ph = personHoursMap.get(person);
             if (tipo.includes("adm")) ph.adm += h;
             else if (tipo.includes("treinamento")) ph.training += h;
             else if (tipo.includes("disponível") || tipo.includes("disponivel") || tipo.includes("disp")) ph.disponivel += h;
             else if (tipo.includes("férias") || tipo.includes("ferias")) ph.ferias += h;
+            else if (tipo.includes("atestado")) ph.atestado += h;
             else ph.project += h;
         });
 
@@ -907,6 +916,24 @@ function renderHourTypeDetails(type, data) {
                 });
             }
         }
+
+        if (type === 'all' || type === 'atestado') {
+            const val = task.hoursAtestado || 0;
+            if (val > 0.01) {
+                items.push({
+                    client: task.client,
+                    title: task.type,
+                    serviceType: task.serviceType || "—",
+                    prpId: prpId,
+                    observacao: observacao,
+                    owner: ownerStr,
+                    hours: val,
+                    typeLabel: 'ATESTADO MÉDICO',
+                    typeColor: '#06b6d4',
+                    bg: '#ecfeff'
+                });
+            }
+        }
     });
 
     items.sort((a, b) => b.hours - a.hours);
@@ -930,10 +957,10 @@ function renderHourTypeDetails(type, data) {
                 </span>
                 ${item.title}
             </td>
-            <td style="padding: 8px; font-size: 0.9em; color: #64748b;">${item.serviceType}</td>
+            <td style="padding: 8px; font-size: 0.9em; color: #06b6d4;">${item.serviceType}</td>
             <td style="padding: 8px; font-size: 0.9em; color: #334155; font-family: monospace; font-weight: 600;">${item.prpId}</td>
-            <td style="padding: 8px; font-size: 0.85em; color: #64748b; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${item.observacao}">${item.observacao}</td>
-            <td style="padding: 8px; font-size: 0.9em; color: #64748b;">${item.owner}</td>
+            <td style="padding: 8px; font-size: 0.85em; color: #06b6d4; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${item.observacao}">${item.observacao}</td>
+            <td style="padding: 8px; font-size: 0.9em; color: #06b6d4;">${item.owner}</td>
             <td style="padding: 8px; text-align: right; font-weight: bold; font-family: monospace; color: ${item.typeColor};">
                 ${item.hours.toFixed(2)}h
             </td>
@@ -1220,7 +1247,7 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
             '#d946ef',
             '#f43f5e',
             '#0ea5e9',
-            '#64748b'
+            '#06b6d4'
         ];
 
         respData.persons.forEach((person, idx) => {
@@ -1507,7 +1534,7 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
                         },
                         datalabels: {
                             display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 10,
-                            color: (ctx) => ctx.datasetIndex === 1 ? '#64748b' : '#fff',
+                            color: (ctx) => ctx.datasetIndex === 1 ? '#06b6d4' : '#fff',
                             font: { weight: 'bold', size: 11 },
                             formatter: (v) => Math.round(v)
                         }
@@ -1565,7 +1592,7 @@ function updateCharts(data, metric, viewMode = 'individual', filterOwner = null)
                         },
                         ticks: {
                             font: { size: 12, weight: '500', family: 'ui-sans-serif, system-ui' },
-                            color: '#64748b',
+                            color: '#06b6d4',
                             padding: 10,
                             callback: function (value) {
                                 return value + 'h';
@@ -1716,6 +1743,7 @@ function getMetricLabel(metric) {
     if (metric === 'hoursTraining') return 'Horas Treinamento';
     if (metric === 'hoursDisponivel') return 'Horas Disponível';
     if (metric === 'hoursFerias') return 'Hora Férias';
+    if (metric === 'hoursAtestado') return 'Horas Atestado Médico';
     if (metric === 'all') return 'Visão Geral (Todas)';
     return 'Horas';
 }
@@ -1756,10 +1784,11 @@ function processResponsibleData(data, metric, filterOwner = null) {
                 const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora).toLowerCase();
 
                 if (metric === 'hoursAdm' && !tipo.includes('adm')) val = 0;
-                else if (metric === 'hoursProject' && (tipo.includes('adm') || tipo.includes('treinamento') || tipo.includes('disponível') || tipo.includes('disponivel') || tipo.includes('disp') || tipo.includes('férias') || tipo.includes('ferias'))) val = 0;
+                else if (metric === 'hoursProject' && (tipo.includes('adm') || tipo.includes('treinamento') || tipo.includes('disponível') || tipo.includes('disponivel') || tipo.includes('disp') || tipo.includes('férias') || tipo.includes('ferias') || tipo.includes('atestado'))) val = 0;
                 else if (metric === 'hoursTraining' && !tipo.includes('treinamento')) val = 0;
                 else if (metric === 'hoursDisponivel' && !(tipo.includes('disponível') || tipo.includes('disponivel') || tipo.includes('disp'))) val = 0;
                 else if (metric === 'hoursFerias' && !(tipo.includes('férias') || tipo.includes('ferias'))) val = 0;
+                else if (metric === 'hoursAtestado' && !tipo.includes('atestado')) val = 0;
 
                 if (val <= 0) return;
 
@@ -1987,10 +2016,11 @@ function processDailyScheduleData(data, metric, filterOwner) {
                 const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora).toLowerCase();
 
                 if (metric === 'hoursAdm' && !tipo.includes('adm')) val = 0;
-                else if (metric === 'hoursProject' && (tipo.includes('adm') || tipo.includes('treinamento') || tipo.includes('disponível') || tipo.includes('disponivel') || tipo.includes('disp') || tipo.includes('férias') || tipo.includes('ferias'))) val = 0;
+                else if (metric === 'hoursProject' && (tipo.includes('adm') || tipo.includes('treinamento') || tipo.includes('disponível') || tipo.includes('disponivel') || tipo.includes('disp') || tipo.includes('férias') || tipo.includes('ferias') || tipo.includes('atestado'))) val = 0;
                 else if (metric === 'hoursTraining' && !tipo.includes('treinamento')) val = 0;
                 else if (metric === 'hoursDisponivel' && !(tipo.includes('disponível') || tipo.includes('disponivel') || tipo.includes('disp'))) val = 0;
                 else if (metric === 'hoursFerias' && !(tipo.includes('férias') || tipo.includes('ferias'))) val = 0;
+                else if (metric === 'hoursAtestado' && !tipo.includes('atestado')) val = 0;
 
                 if (val <= 0) return;
 
@@ -2171,10 +2201,11 @@ function processDailyListHelper(data, metric, filterOwner) {
                 const tipo = safeStr(a["Tipo da hora"] || a.tipo_hora).toLowerCase();
 
                 if (metric === 'hoursAdm' && !tipo.includes('adm')) h = 0;
-                else if (metric === 'hoursProject' && (tipo.includes('adm') || tipo.includes('treinamento') || tipo.includes('disponível') || tipo.includes('disponivel') || tipo.includes('disp') || tipo.includes('férias') || tipo.includes('ferias'))) h = 0;
+                else if (metric === 'hoursProject' && (tipo.includes('adm') || tipo.includes('treinamento') || tipo.includes('disponível') || tipo.includes('disponivel') || tipo.includes('disp') || tipo.includes('férias') || tipo.includes('ferias') || tipo.includes('atestado'))) h = 0;
                 else if (metric === 'hoursTraining' && !tipo.includes('treinamento')) h = 0;
                 else if (metric === 'hoursDisponivel' && !(tipo.includes('disponível') || tipo.includes('disponivel') || tipo.includes('disp'))) h = 0;
                 else if (metric === 'hoursFerias' && !(tipo.includes('férias') || tipo.includes('ferias'))) h = 0;
+                else if (metric === 'hoursAtestado' && !tipo.includes('atestado')) h = 0;
 
                 if (h <= 0) return;
 
@@ -2192,6 +2223,7 @@ function processDailyListHelper(data, metric, filterOwner) {
                 else if (tipo.includes('treinamento')) typeLabel = 'training';
                 else if (tipo.includes('disponível') || tipo.includes('disponivel') || tipo.includes('disp')) typeLabel = 'disponivel';
                 else if (tipo.includes('férias') || tipo.includes('ferias')) typeLabel = 'ferias';
+                else if (tipo.includes('atestado')) typeLabel = 'atestado';
 
                 const prpFromApontamento = a['PRP'] || a['prp'] || item.prpId;
 
@@ -2216,6 +2248,7 @@ function calculateTaskMetrics(apontamentos, taskId, index) {
     let hTraining = 0;
     let hDisponivel = 0;
     let hFerias = 0;
+    let hAtestado = 0;
     const participantsMap = new Map();
 
     apontamentos.forEach((a, aIndex) => {
@@ -2247,6 +2280,7 @@ function calculateTaskMetrics(apontamentos, taskId, index) {
         else if (tipo.includes("treinamento")) hTraining += h;
         else if (tipo.includes("disponível") || tipo.includes("disponivel") || tipo.includes("disp")) hDisponivel += h;
         else if (tipo.includes("férias") || tipo.includes("ferias")) hFerias += h;
+        else if (tipo.includes("atestado")) hAtestado += h;
 
         const name = safeStr(
             a["Nome colaborador"] ||
@@ -2270,6 +2304,7 @@ function calculateTaskMetrics(apontamentos, taskId, index) {
                     hoursTraining: 0,
                     hoursDisponivel: 0,
                     hoursFerias: 0,
+                    hoursAtestado: 0,
                     roles: new Set()
                 });
             }
@@ -2279,6 +2314,7 @@ function calculateTaskMetrics(apontamentos, taskId, index) {
             else if (tipo.includes("treinamento")) p.hoursTraining += h;
             else if (tipo.includes("disponível") || tipo.includes("disponivel") || tipo.includes("disp")) p.hoursDisponivel += h;
             else if (tipo.includes("férias") || tipo.includes("ferias")) p.hoursFerias += h;
+            else if (tipo.includes("atestado")) p.hoursAtestado += h;
             else p.hoursProject += h;
 
             const role = safeStr(
@@ -2302,10 +2338,11 @@ function calculateTaskMetrics(apontamentos, taskId, index) {
         hoursAdm: p.hoursAdm,
         hoursTraining: p.hoursTraining,
         hoursDisponivel: p.hoursDisponivel,
-        hoursFerias: p.hoursFerias
+        hoursFerias: p.hoursFerias,
+        hoursAtestado: p.hoursAtestado
     }));
 
-    const hProject = Math.max(0, hTotal - hAdm - hTraining - hDisponivel - hFerias);
+    const hProject = Math.max(0, hTotal - hAdm - hTraining - hDisponivel - hFerias - hAtestado);
 
     return {
         hoursProject: hProject,
@@ -2313,6 +2350,7 @@ function calculateTaskMetrics(apontamentos, taskId, index) {
         hoursTraining: hTraining,
         hoursDisponivel: hDisponivel,
         hoursFerias: hFerias,
+        hoursAtestado: hAtestado,
         assignments: assignments
     };
 }
@@ -2422,8 +2460,8 @@ function renderDeliveryDashboard(data) {
                 <div class="status-line"></div>
                 <div class="delivery-content">
                     <div class="delivery-title">${clientName}</div>
-                    ${demandTitle ? `<div class="delivery-meta" style="font-size: 13px; color: #64748b; margin-top: 2px;">${demandTitle}</div>` : ''}
-                    <div class="delivery-responsibles" style="font-size: 12px; color: #64748b; margin-top: 4px;">
+                    ${demandTitle ? `<div class="delivery-meta" style="font-size: 13px; color: #06b6d4; margin-top: 2px;">${demandTitle}</div>` : ''}
+                    <div class="delivery-responsibles" style="font-size: 12px; color: #06b6d4; margin-top: 4px;">
                         Resp: ${owners}
                     </div>
                 </div>
