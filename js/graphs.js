@@ -99,8 +99,22 @@ async function init() {
 
 function safeStr(x) { return (x === null || x === undefined) ? "" : String(x).trim(); }
 function toNumber(x) {
-    const s = safeStr(x).replace(/\./g, "").replace(",", ".").replace(/[^\d.-]/g, "");
-    const n = Number(s);
+    const s = safeStr(x).replace(/[^\d.,\-]/g, "");
+    if (!s) return 0;
+    let normalized;
+    const lastDot   = s.lastIndexOf('.');
+    const lastComma = s.lastIndexOf(',');
+    if (lastDot !== -1 && lastComma !== -1) {
+        // ambos presentes: o último é o separador decimal
+        normalized = lastComma > lastDot
+            ? s.replace(/\./g, '').replace(',', '.')   // 1.234,56
+            : s.replace(/,/g, '');                     // 1,234.56
+    } else if (lastComma !== -1) {
+        normalized = s.replace(',', '.');              // 6,5 → 6.5
+    } else {
+        normalized = s;                                // 6.5 → 6.5
+    }
+    const n = Number(normalized);
     return Number.isFinite(n) ? n : 0;
 }
 
